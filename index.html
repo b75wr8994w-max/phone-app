@@ -192,6 +192,29 @@ ${action}
         setModal({ title:"資產轉移", body:`成功將 ${amount.toFixed(6)} BTC 移入冷錢包。` });
       };
 
+      // ✅ 新增：重置功能（清空 localStorage + 回到初始值）
+      const resetAll = () => {
+        try { localStorage.removeItem(SAVE_KEY); } catch (e) {}
+
+        setState({ ...INITIAL_STATE, logs: [] });
+
+        setUi({
+          btcPrice: 90000,
+          fngIndex: 50,
+          ethBtcRatio: 0.05,
+          adaBtcRatio: 0.000008
+        });
+
+        draftRef.current = {
+          btcPrice: "90000",
+          ethBtcRatio: "0.05",
+          adaBtcRatio: "0.000008",
+          fngIndex: "50"
+        };
+
+        setModal({ title:"已重置", body:"所有資料已清空，並回到初始值。" });
+      };
+
       const Chip = ({active, children, onClick}) => (
         React.createElement("button", {
           onClick,
@@ -223,7 +246,7 @@ ${action}
         )
       );
 
-      // ✅ 恐貪指數：改成自己輸入 0-100（onBlur 套用）
+      // ✅ 恐貪指數：自己輸入 0-100（onBlur 套用）
       const FngInput = () => (
         React.createElement("div", { className:"space-y-1" },
           React.createElement("div", { className:"flex justify-between items-center" },
@@ -301,7 +324,16 @@ ${action}
 
           // Home
           tab==="home" && React.createElement("div", { className:"bg-slate-800 rounded-2xl p-5 border border-slate-700 space-y-4" },
-            React.createElement("div", { className:"text-lg font-extrabold text-emerald-400" }, "⚡ 每週任務"),
+
+            /* ✅ 這裡新增「重置」按鈕（唯一 UI 變更） */
+            React.createElement("div", { className:"flex items-center justify-between" },
+              React.createElement("div", { className:"text-lg font-extrabold text-emerald-400" }, "⚡ 每週任務"),
+              React.createElement("button", {
+                onClick: resetAll,
+                className:"text-xs px-3 py-2 rounded-xl bg-slate-700 hover:bg-slate-600 font-bold"
+              }, "重置")
+            ),
+
             React.createElement(Field, { label:"本週 BTC 價格 (USDT)", name:"btcPrice", inputMode:"numeric" }),
             React.createElement(FngInput, null),
             React.createElement("div", { className:"grid grid-cols-2 gap-3" },

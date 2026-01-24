@@ -35,22 +35,13 @@ const SAVE_KEY = "project2030_exec_constitution_monthpool_v1";
 const PART = 60;
 const MONTH_PARTS = 3;
 
-/** 長牛保險：FNG > 75 連續 8 週後啟動（約 2 個月），之後每月執行時強制 1 份買入 */
+/** 長牛保險：FNG > 75 連續 8 週後啟動（約 2 個月），之後每週強制 1 份買入 */
 const GREED_THRESHOLD = 75;
 const GREED_WEEKS_FOR_INSURANCE = 8;
 
 /** 黑天鵝：預備金分 4 週等額買入；反彈 > 15% 停止 */
 const BLACK_SWAN_WEEKS = 4;
 const BLACK_SWAN_STOP_REBOUND = 15;
-
-/** ETH / ADA 門檻 */
-const ETH_STAGE1 = 0.060, ETH_STAGE2 = 0.065, ETH_STAGE3 = 0.075;
-const ADA_STAGE1 = 0.000010, ADA_STAGE2 = 0.000013;
-
-/** ETH 掛單回接：BTC 回撤 15% / 20% + 90 天最晚回家 */
-const BUYBACK_DROP_STAGE1 = 15;
-const BUYBACK_DROP_STAGE2 = 20;
-const BUYBACK_DEADLINE_DAYS = 90;
 
 /** ========= 工具 ========= */
 function todayMMDD(){
@@ -62,11 +53,6 @@ function parseNum(s, fallback = NaN){
   return Number.isFinite(n) ? n : fallback;
 }
 function fmt(n, d=4){ return Number(n||0).toFixed(d); }
-function isoPlusDays(days){
-  const d = new Date();
-  d.setDate(d.getDate() + days);
-  return d.toISOString();
-}
 function monthKeyNow(){
   const d = new Date();
   const y = d.getFullYear();
@@ -77,28 +63,19 @@ function monthKeyNow(){
 /** ========= 初始狀態（含月度份額池） ========= */
 function initialStateNow(){
   return {
-    // BTC
     btcHot: 0.0,
     btcCold: 0.0,
-
-    // 預備金（未投入份額 + 額外閒置現金）
     usdtReserve: 0,
-
-    // Alts
     eth: 34.0,
     ada: 74000.0,
-
-    // Logs
     logs: [],
-
-    // DCA 計數
     consecutiveGreedWeeks: 0,
 
     // ✅ 月度資金池：每月補一次 3 份
     monthPartsRemaining: MONTH_PARTS,
     lastMonthKey: monthKeyNow(),
 
-    // 黑天鵝買入計畫
+    // 黑天鵝
     blackSwan: {
       active: false,
       remainingWeeks: 0,
@@ -107,9 +84,8 @@ function initialStateNow(){
       reason: null
     },
 
-    // ETH 換 USDT 掛單回接
+    // 這版保留欄位（未使用也不影響）
     pendingOrders: [],
-
     alerts: {
       ethBtcWatch: 0.045,
       adaBtcWatch: 0.0000095
@@ -133,9 +109,9 @@ function App(){
     ethBtcRatio: "0.050",
     adaBtcRatio: "0.000008",
     athDrawdownPct: "0",
-    below200w: "0",      // 0/1
-    reboundPct: "0",     // 黑天鵝反彈 %
-    extraReserveAdd: "0" // 手動補充預備金
+    below200w: "0",
+    reboundPct: "0",
+    extraReserveAdd: "0"
   });
 
   const [ui, setUi] = useState({
@@ -159,7 +135,6 @@ function App(){
       const saved = localStorage.getItem(SAVE_KEY);
       if(saved){
         const parsed = JSON.parse(saved);
-        // 舊版存檔可能沒有 monthPartsRemaining/lastMonthKey：補上
         const merged = { ...initialStateNow(), ...parsed };
         setState(merged);
       }else{
@@ -180,32 +155,102 @@ function App(){
   const progress = clamp((totalBtc / GOAL_BTC) * 100, 0, 100);
   const daysLeft = useMemo(() => Math.max(0, Math.ceil((TARGET_DATE - Date.now())/(1000*60*60*24))), [totalBtc]);
 
-  /** 穩定幣估算（reserve + open orders） */
-  const stableTotal = useMemo(() => {
-    const openOrders = state.pendingOrders.filter(o => o.status === "open");
-    const ordersUsdt = openOrders.reduce((s,o)=>s + (o.usdtAmount||0), 0);
-    return (state.usdtReserve||0) + ordersUsdt;
-  }, [state.usdtReserve, state.pendingOrders]);
+  /** ========= 匯出 / 匯入 ========= */
+  const copyToClipboard = async (text) => {
+    try{
+      if(navigator.clipboard && navigator.clipboard.writeText){
+        await navigator.clipboard.writeText(text);
+        return true;
+      }
+    }catch(e){}
+    // fallback
+    try{
+      const ta = document.createElement("textarea");
+      ta.value = text;
+      ta.style.position = "fixed";
+      ta.style.left = "-9999px";
+      document.body.appendChild(ta);
+      ta.focus();
+      ta.select();
+      const ok = document.execCommand("copy");
+      document.body.removeChild(ta);
+      return ok;
+    }catch(e){
+      return false;
+    }
+  };
 
-  const portfolioUsdApprox = useMemo(() => {
-    const btcUSD = totalBtc * (ui.btcPrice || 0);
-    const ethUSD = state.eth * (ui.ethBtcRatio || 0) * (ui.btcPrice || 0);
-    const adaUSD = state.ada * (ui.adaBtcRatio || 0) * (ui.btcPrice || 0);
-    return btcUSD + ethUSD + adaUSD + stableTotal;
-  }, [totalBtc, ui.btcPrice, ui.ethBtcRatio, ui.adaBtcRatio, state.eth, state.ada, stableTotal]);
+  const exportBackup = () => {
+    const payload = {
+      schema: "project2030-backup-v1",
+      exportedAtISO: new Date().toISOString(),
+      saveKey: SAVE_KEY,
+      state: state,
+      ui: ui,
+      draft: draftRef.current
+    };
+    const json = JSON.stringify(payload, null, 2);
+    setModal({ mode:"export", title:"匯出備份", json });
+  };
 
-  const stablePct = useMemo(() => {
-    if(!(portfolioUsdApprox > 0)) return 0;
-    return stableTotal / portfolioUsdApprox * 100;
-  }, [stableTotal, portfolioUsdApprox]);
+  const importBackup = (jsonText) => {
+    try{
+      const obj = JSON.parse(jsonText);
 
-  /** ========= 每週執行（重點修正：月度份額池） ========= */
+      // 允許兩種格式：完整 payload 或直接 state
+      let nextState = null;
+      let nextUi = null;
+      let nextDraft = null;
+
+      if(obj && obj.schema === "project2030-backup-v1" && obj.state){
+        nextState = obj.state;
+        nextUi = obj.ui || null;
+        nextDraft = obj.draft || null;
+      }else if(obj && obj.btcHot !== undefined && obj.monthPartsRemaining !== undefined){
+        nextState = obj;
+      }else{
+        throw new Error("格式不符合");
+      }
+
+      // 合併 default，確保新欄位存在
+      const merged = { ...initialStateNow(), ...nextState };
+
+      setState(merged);
+
+      if(nextUi){
+        setUi({
+          btcPrice: Number(nextUi.btcPrice || 90000),
+          fngIndex: Number(nextUi.fngIndex || 50),
+          ethBtcRatio: Number(nextUi.ethBtcRatio || 0.05),
+          adaBtcRatio: Number(nextUi.adaBtcRatio || 0.000008),
+          athDrawdownPct: Number(nextUi.athDrawdownPct || 0),
+          below200w: Number(nextUi.below200w || 0),
+          reboundPct: Number(nextUi.reboundPct || 0)
+        });
+      }
+
+      if(nextDraft){
+        draftRef.current = {
+          ...draftRef.current,
+          ...nextDraft
+        };
+      }
+
+      addLog("已匯入備份並覆蓋目前資料。", "success");
+      setModal({ mode:"info", title:"匯入成功", body:"備份已匯入，資料已更新。" });
+
+    }catch(e){
+      setModal({ mode:"info", title:"匯入失敗", body:"JSON 格式不正確或不是本 App 的備份。" });
+    }
+  };
+
+  /** ========= 每週執行（核心：月度份額池） ========= */
   const executeWeekly = () => {
     const btcPrice = Number(ui.btcPrice || 0);
     const fng = clamp(Number(ui.fngIndex || 0), 0, 100);
 
     if(!(btcPrice > 0)){
-      setModal({ title:"輸入錯誤", body:"BTC 價格必須 > 0" });
+      setModal({ mode:"info", title:"輸入錯誤", body:"BTC 價格必須 > 0" });
       return;
     }
 
@@ -217,26 +262,12 @@ function App(){
     let lastMonthKey = state.lastMonthKey;
 
     if(lastMonthKey !== nowMonthKey){
-      monthParts = MONTH_PARTS;       // ✅ 每月補充 3 份（180U）
+      monthParts = MONTH_PARTS;
       lastMonthKey = nowMonthKey;
       monthRefilled = true;
     }
 
-    // 1) 先跑 90天最晚回家（對 pendingOrders）
-    const nowISO = new Date().toISOString();
-    let forcedBuybacks = [];
-    let updatedOrders = state.pendingOrders.map(o => {
-      if(o.status !== "open") return o;
-      if(new Date(o.deadlineISO).getTime() <= Date.now()){
-        const btcBought = (o.usdtAmount || 0) / btcPrice;
-        forcedBuybacks.push({ id:o.id, btcBought });
-        return { ...o, status:"closed", closedReason:"deadline_force_buyback", btcReceived:btcBought, closedAtISO:nowISO };
-      }
-      return o;
-    });
-    const btcFromForced = forcedBuybacks.reduce((s,x)=>s + x.btcBought, 0);
-
-    // 2) 先算「市場分類」與長牛週數（即使本月份額用完也要追蹤）
+    // 1) 市場分類與長牛週數
     let greedWeeks = state.consecutiveGreedWeeks;
     let marketLabel = "";
     if(fng < 20){ marketLabel="A"; greedWeeks = 0; }
@@ -244,22 +275,20 @@ function App(){
     else if(fng <= 75){ marketLabel="C"; greedWeeks = 0; }
     else { marketLabel="D"; greedWeeks += 1; }
 
-    // 3) 決定本月要用幾份（本月份額池）
-    //    如果本月份額已用完：DCA 部分 = 0（不再憑空生 180U）
+    // 2) 決定本月要用幾份（份額池）
     let spendPartsWanted = 0;
     let savePartsWanted = 0;
     let action = "";
 
     if(monthParts <= 0){
-      // ✅ 份額已用完：仍可跑黑天鵝/掛單/90天回家，但 DCA 不再出錢
-      action = `本月 DCA 已執行完畢（份額 0/3）｜本次僅執行風控/掛單檢查`;
+      action = `本月 DCA 已執行完畢（份額 0/3）｜本次不新增月薪資金`;
       spendPartsWanted = 0;
       savePartsWanted = 0;
     }else{
-      // ✅ 本月還有份額：照你的 A/B/C/D + 長牛保險
       if(marketLabel === "A"){
-        action = "A 極度恐慌：投入 3 份 + 啟動黑天鵝預備金";
+        action = "A 極度恐慌：投入 3 份（本月一次性用完）";
         spendPartsWanted = 3; savePartsWanted = 0;
+        greedWeeks = 0;
       }else if(marketLabel === "B"){
         action = "B 恐懼：2 份買 / 1 份存";
         spendPartsWanted = 2; savePartsWanted = 1;
@@ -267,9 +296,8 @@ function App(){
         action = "C 中性/偏貪：1 份買 / 2 份存";
         spendPartsWanted = 1; savePartsWanted = 2;
       }else{
-        // D
         if(greedWeeks > GREED_WEEKS_FOR_INSURANCE){
-          action = "D 貪婪：長牛保險啟動（1 份買 / 2 份存）";
+          action = "D 貪婪：長牛保險（1 份買 / 2 份存）";
           spendPartsWanted = 1; savePartsWanted = 2;
         }else{
           action = "D 貪婪：停止主動買進（3 份全存）";
@@ -277,10 +305,9 @@ function App(){
         }
       }
 
-      // 本月剩幾份就只能用幾份（保底）
+      // 份額不足時的保底：先保留買入，再存
       const totalWanted = spendPartsWanted + savePartsWanted;
       if(totalWanted > monthParts){
-        // 優先保留「買入」份額，再把剩的存入預備金
         const spendParts = Math.min(spendPartsWanted, monthParts);
         const left = monthParts - spendParts;
         const saveParts = Math.min(savePartsWanted, left);
@@ -290,11 +317,10 @@ function App(){
       }
     }
 
-    // 4) 將「買/存」換成 USDT
     const usdtSpent = spendPartsWanted * PART;
     const usdtSaved = savePartsWanted * PART;
 
-    // 5) 黑天鵝（第三章）
+    // 3) 黑天鵝（本版保留原邏輯：只在有預備金時才有意義）
     const athDD = clamp(Number(ui.athDrawdownPct || 0), 0, 100);
     const below200w = Number(ui.below200w || 0) === 1;
     const blackSwanTriggered = (fng < 20) || (athDD >= 30) || below200w;
@@ -305,13 +331,11 @@ function App(){
     const rebound = clamp(Number(ui.reboundPct || 0), 0, 100);
     if(blackSwan.active && rebound > BLACK_SWAN_STOP_REBOUND){
       blackSwan = { active:false, remainingWeeks:0, weeklyBudget:0, startedAtISO:blackSwan.startedAtISO, reason:blackSwan.reason };
-      addLog(`黑天鵝停止：反彈 ${rebound}% > ${BLACK_SWAN_STOP_REBOUND}%（保留剩餘子彈）`, "warning");
+      addLog(`黑天鵝停止：反彈 ${rebound}% > ${BLACK_SWAN_STOP_REBOUND}%`, "warning");
     }
 
-    // 預備金先把「本次存入」加進去（但注意：注意這個存入只有在本月份額>0才會發生）
     let reserveAfterSave = state.usdtReserve + usdtSaved;
 
-    // 啟動黑天鵝：把「當下預備金」分 4 週
     if(!blackSwan.active && blackSwanTriggered){
       const reserveNow = reserveAfterSave;
       if(reserveNow > 0){
@@ -321,81 +345,54 @@ function App(){
           active:true,
           remainingWeeks: BLACK_SWAN_WEEKS,
           weeklyBudget: weekly,
-          startedAtISO: nowISO,
+          startedAtISO: new Date().toISOString(),
           reason
         };
+        addLog(`黑天鵝啟動：原因=${reason}｜預備金分4週買入`, "alert");
       }
     }
 
-    // 黑天鵝進行中：本週動用預備金週額
     if(blackSwan.active && blackSwan.remainingWeeks > 0){
-      const planned = blackSwan.weeklyBudget;
-      const spend = Math.max(0, Math.min(reserveAfterSave, planned));
+      const spend = Math.max(0, Math.min(reserveAfterSave, blackSwan.weeklyBudget));
       if(spend > 0){
         blackSwanSpentThisWeek = spend;
         reserveAfterSave -= spend;
         blackSwan = { ...blackSwan, remainingWeeks: blackSwan.remainingWeeks - 1 };
+        addLog(`黑天鵝買入：本週動用預備金 ${Math.floor(spend)}U（剩 ${blackSwan.remainingWeeks} 週）`, "success");
       }
       if(blackSwan.remainingWeeks <= 0){
         blackSwan = { ...blackSwan, active:false, remainingWeeks:0 };
+        addLog("黑天鵝結束：4 週買入完成", "system");
       }
     }
 
-    // 6) 本週 BTC 買入（DCA spend + 黑天鵝 spend）+ 強制回家 BTC
+    // 4) BTC 買入（DCA spend + 黑天鵝 spend）
     const totalSpent = usdtSpent + blackSwanSpentThisWeek;
     const btcBought = totalSpent > 0 ? (totalSpent / btcPrice) : 0;
 
-    // 7) 更新 monthPartsRemaining（本月只會用掉一次 3份；用完後=0）
+    // 5) 扣份額
     const usedParts = spendPartsWanted + savePartsWanted;
     const newMonthParts = Math.max(0, monthParts - usedParts);
 
     const next = {
       ...state,
-      btcHot: state.btcHot + btcBought + btcFromForced,
+      btcHot: state.btcHot + btcBought,
       usdtReserve: reserveAfterSave,
       consecutiveGreedWeeks: greedWeeks,
-
-      // ✅ 月度份額池
       monthPartsRemaining: newMonthParts,
       lastMonthKey: lastMonthKey,
-
-      blackSwan,
-      pendingOrders: updatedOrders
+      blackSwan
     };
 
     setState(next);
 
-    // Logs（順序：setState 後用 functional 更新，避免覆蓋）
-    if(monthRefilled){
-      addLog(`月份更新：補充本月 DCA 份額 3 份（共 180U）`, "system");
-    }
-    addLog(`週報：${action}`, (usdtSpent > 0) ? "success" : "warning");
+    if(monthRefilled) addLog(`月份更新：補充本月份額 3 份（180U）`, "system");
+    addLog(`週報：${action}`, usdtSpent > 0 ? "success" : "warning");
     if(totalSpent > 0) addLog(`本週投入：${Math.floor(totalSpent)}U → 買入 ${btcBought.toFixed(6)} BTC @ ${btcPrice}`, "success");
-    if(usdtSaved > 0) addLog(`本月份額存入預備金：+${usdtSaved}U`, "info");
-    if(blackSwanTriggered && !state.blackSwan.active && blackSwan.active){
-      addLog(`黑天鵝啟動：原因=${blackSwan.reason}｜預備金分 ${BLACK_SWAN_WEEKS} 週買入`, "alert");
-    }
-    if(blackSwanSpentThisWeek > 0){
-      addLog(`黑天鵝買入：本週動用預備金 ${Math.floor(blackSwanSpentThisWeek)}U（剩 ${blackSwan.remainingWeeks} 週）`, "success");
-    }
-    if(btcFromForced > 0){
-      addLog(`90天最晚回家：強制買回 +${btcFromForced.toFixed(6)} BTC（市價）`, "alert");
-    }
-
-    // 掛單達標提醒（不自動接回，避免一鍵做太多）
-    const openOrders = updatedOrders.filter(o => o.status==="open");
-    const hit = openOrders.filter(o => (ui.btcPrice || 0) <= (o.targetPrice || -1));
-    if(hit.length > 0){
-      addLog(`掛單達標提醒：有 ${hit.length} 筆已達接回價（去【掛單/90天】頁一鍵接回）`, "alert");
-    }
-
-    // 穩定幣占比提示（非轉換期才提醒）
-    const hasConversionPeriod = updatedOrders.some(o => o.status==="open");
-    if(!hasConversionPeriod && stablePct > 30){
-      addLog(`風控提醒：穩定幣占比約 ${stablePct.toFixed(1)}% > 30%（非轉換期）`, "warning");
-    }
+    if(usdtSaved > 0) addLog(`存入預備金：+${usdtSaved}U`, "info");
 
     setModal({
+      mode:"info",
       title:"執行完成",
       body: `
 ${action}
@@ -416,13 +413,13 @@ DCA 本次投入：${usdtSpent} U
   /** 冷錢包鐵律 */
   const moveCold = () => {
     if(state.btcHot < 0.05){
-      setModal({ title:"指令拒絕", body:"未達 0.05 BTC 門檻，請節省手續費。" });
+      setModal({ mode:"info", title:"指令拒絕", body:"未達 0.05 BTC 門檻，請節省手續費。" });
       return;
     }
     const amount = state.btcHot;
     setState(prev => ({ ...prev, btcHot:0, btcCold: prev.btcCold + amount }));
     addLog(`提領 ${amount.toFixed(6)} BTC 至冷錢包`, "secure");
-    setModal({ title:"資產轉移", body:`成功將 ${amount.toFixed(6)} BTC 移入冷錢包。` });
+    setModal({ mode:"info", title:"資產轉移", body:`成功將 ${amount.toFixed(6)} BTC 移入冷錢包。` });
   };
 
   /** 重置 */
@@ -449,112 +446,20 @@ DCA 本次投入：${usdtSpent} U
       reboundPct: "0",
       extraReserveAdd: "0"
     };
-    setModal({ title:"已重置", body:"所有資料已清空，並回到初始值。" });
+    setModal({ mode:"info", title:"已重置", body:"所有資料已清空，並回到初始值。" });
   };
 
   /** 手動補充預備金 */
   const addExtraReserve = () => {
     const add = Math.max(0, Math.floor(parseNum(draftRef.current.extraReserveAdd, 0)));
     if(!(add > 0)){
-      setModal({ title:"輸入錯誤", body:"請輸入要補充的預備金（正整數）" });
+      setModal({ mode:"info", title:"輸入錯誤", body:"請輸入要補充的預備金（正整數）" });
       return;
     }
     setState(prev => ({ ...prev, usdtReserve: prev.usdtReserve + add }));
     addLog(`手動補充預備金：+${add} U`, "success");
     draftRef.current.extraReserveAdd = "0";
-    setModal({ title:"補充成功", body:`已補充預備金 +${add} U` });
-  };
-
-  /** 第二章：轉換與掛單（保留你原本喜歡的架構） */
-  const executeConvertDirectToBTC = (asset, amountAsset, btcReceived) => {
-    const amount = Number(amountAsset);
-    const btc = Number(btcReceived);
-    if(!(amount > 0) || !(btc > 0)) return false;
-
-    setState(prev => {
-      const next = { ...prev };
-      if(asset === "ETH"){
-        if(next.eth < amount) return prev;
-        next.eth -= amount;
-      }else if(asset === "ADA"){
-        if(next.ada < amount) return prev;
-        next.ada -= amount;
-      }
-      next.btcHot += btc;
-      return next;
-    });
-    addLog(`[轉換] ${amount} ${asset} → ${btc.toFixed(6)} BTC（直接換 BTC）`, "success");
-    return true;
-  };
-
-  const createUsdtBuybackOrder = (usdtAmount, dropPct) => {
-    const btcPrice = Number(ui.btcPrice || 0);
-    if(!(btcPrice > 0)) return null;
-    const usdt = Number(usdtAmount);
-    if(!(usdt > 0)) return null;
-
-    const targetPrice = btcPrice * (1 - dropPct/100);
-    return {
-      id: Date.now() + Math.random(),
-      createdAtISO: new Date().toISOString(),
-      deadlineISO: isoPlusDays(BUYBACK_DEADLINE_DAYS),
-      usdtAmount: usdt,
-      refBtcPrice: btcPrice,
-      dropPct,
-      targetPrice,
-      status: "open",
-      btcReceived: 0
-    };
-  };
-
-  const executeConvertToUSDTWithOrder = (ethAmount, usdtReceived, dropPct) => {
-    const eth = Number(ethAmount);
-    const usdt = Number(usdtReceived);
-    if(!(eth > 0) || !(usdt > 0)) return false;
-
-    const order = createUsdtBuybackOrder(usdt, dropPct);
-    if(!order){
-      setModal({ title:"缺少資料", body:"請先在 HOME 輸入 BTC 價格，才能建立回接掛單目標。" });
-      return false;
-    }
-
-    setState(prev => {
-      if(prev.eth < eth) return prev;
-      return { ...prev, eth: prev.eth - eth, pendingOrders: [order, ...prev.pendingOrders] };
-    });
-
-    addLog(`[轉換] ${eth} ETH → ${usdt.toFixed(0)} USDT（掛單回撤${dropPct}%接回｜90天最晚回家）`, "warning");
-    return true;
-  };
-
-  const checkAndBuybackOrders = () => {
-    const btcPrice = Number(ui.btcPrice || 0);
-    if(!(btcPrice > 0)){
-      setModal({ title:"缺少資料", body:"請先在 HOME 輸入 BTC 價格。" });
-      return;
-    }
-
-    const nowISO = new Date().toISOString();
-    let btcGained = 0;
-
-    const updated = state.pendingOrders.map(o => {
-      if(o.status !== "open") return o;
-      if(btcPrice <= o.targetPrice){
-        const btcBought = (o.usdtAmount || 0) / btcPrice;
-        btcGained += btcBought;
-        return { ...o, status:"closed", closedReason:"target_hit_buyback", btcReceived:btcBought, closedAtISO:nowISO };
-      }
-      return o;
-    });
-
-    if(btcGained > 0){
-      setState(prev => ({ ...prev, btcHot: prev.btcHot + btcGained, pendingOrders: updated }));
-      addLog(`[掛單接回] 達標接回：+${btcGained.toFixed(6)} BTC（市價）`, "success");
-      setModal({ title:"接回完成", body:`已接回 BTC +${btcGained.toFixed(6)} 顆（以目前 BTC 價格計算）` });
-    }else{
-      setState(prev => ({ ...prev, pendingOrders: updated }));
-      setModal({ title:"未達標", body:"目前沒有掛單達到接回價位。" });
-    }
+    setModal({ mode:"info", title:"補充成功", body:`已補充預備金 +${add} U` });
   };
 
   /** UI 元件 */
@@ -615,7 +520,7 @@ DCA 本次投入：${usdtSpent} U
         })
       ),
       React.createElement("div", { className:"text-[10px] text-right text-slate-500 mt-1" },
-        `剩餘 ${daysLeft} 天｜本月份額剩餘 ${state.monthPartsRemaining}/3｜穩定幣占比約 ${stablePct.toFixed(1)}%`
+        `剩餘 ${daysLeft} 天｜本月份額剩餘 ${state.monthPartsRemaining}/3`
       )
     ),
 
@@ -625,9 +530,7 @@ DCA 本次投入：${usdtSpent} U
       /** Tabs */
       React.createElement("div", { className:"flex gap-2 flex-wrap" },
         React.createElement(Chip, { active: tab==="home", onClick:()=>setTab("home") }, "HOME 每週"),
-        React.createElement(Chip, { active: tab==="convert", onClick:()=>setTab("convert") }, "轉換 ETH/ADA"),
-        React.createElement(Chip, { active: tab==="orders", onClick:()=>setTab("orders") }, "掛單/90天"),
-        React.createElement(Chip, { active: tab==="sop", onClick:()=>setTab("sop") }, "SOP 憲法")
+        React.createElement(Chip, { active: tab==="tools", onClick:()=>setTab("tools") }, "工具")
       ),
 
       /** Asset cards */
@@ -647,17 +550,29 @@ DCA 本次投入：${usdtSpent} U
         )
       ),
 
+      /** Reserve card + buttons */
       React.createElement("div", { className:"bg-slate-800 rounded-2xl p-4 border border-slate-700" },
-        React.createElement("div", { className:"flex items-center justify-between" },
+        React.createElement("div", { className:"flex items-start justify-between gap-2" },
           React.createElement("div", null,
             React.createElement("div", { className:"text-xs text-slate-400" }, "預備金 (USDT)"),
             React.createElement("div", { className:"text-2xl mono font-bold mt-1" }, "$" + Math.floor(state.usdtReserve||0).toLocaleString())
           ),
-          React.createElement("button", {
-            onClick: resetAll,
-            className:"text-xs px-3 py-2 rounded-xl bg-slate-700 hover:bg-slate-600 font-bold"
-          }, "重置")
+          React.createElement("div", { className:"flex gap-2" },
+            React.createElement("button", {
+              onClick: exportBackup,
+              className:"text-xs px-3 py-2 rounded-xl bg-slate-700 hover:bg-slate-600 font-bold"
+            }, "匯出"),
+            React.createElement("button", {
+              onClick: ()=> setModal({ mode:"import", title:"匯入備份" }),
+              className:"text-xs px-3 py-2 rounded-xl bg-slate-700 hover:bg-slate-600 font-bold"
+            }, "匯入"),
+            React.createElement("button", {
+              onClick: resetAll,
+              className:"text-xs px-3 py-2 rounded-xl bg-slate-700 hover:bg-slate-600 font-bold"
+            }, "重置")
+          )
         ),
+
         React.createElement("div", { className:"mt-3 grid grid-cols-3 gap-2 items-end" },
           React.createElement("div", { className:"col-span-2" },
             React.createElement("div", { className:"text-xs text-slate-400 mb-1" }, "手動補充預備金（閒置現金）"),
@@ -677,7 +592,7 @@ DCA 本次投入：${usdtSpent} U
       ),
 
       /** HOME */
-      tab==="home" && React.createElement("div", { className:"bg-slate-800 rounded-2xl p-5 border border-slate-700 space-y-4" },
+      (tab==="home") && React.createElement("div", { className:"bg-slate-800 rounded-2xl p-5 border border-slate-700 space-y-4" },
         React.createElement("div", { className:"flex items-center justify-between" },
           React.createElement("div", { className:"text-lg font-extrabold text-emerald-400" }, "⚡ 每週執行（DCA 月薪池 + 風控）"),
           React.createElement("div", { className:"text-xs text-slate-400 mono" }, `份額 ${state.monthPartsRemaining}/3`)
@@ -685,7 +600,6 @@ DCA 本次投入：${usdtSpent} U
 
         React.createElement(Field, { label:"本週 BTC 價格 (USDT)", name:"btcPrice", inputMode:"numeric" }),
 
-        // FNG input (0-100)
         React.createElement("div", { className:"space-y-1" },
           React.createElement("div", { className:"flex justify-between items-center" },
             React.createElement("div", { className:"text-xs text-slate-400" }, "恐懼與貪婪指數 (0-100)"),
@@ -711,20 +625,15 @@ DCA 本次投入：${usdtSpent} U
           )
         ),
 
-        React.createElement("div", { className:"grid grid-cols-2 gap-3" },
-          React.createElement(Field, { label:"ETH/BTC 匯率（監控/轉換用）", name:"ethBtcRatio", inputMode:"decimal" }),
-          React.createElement(Field, { label:"ADA/BTC 匯率（監控/轉換用）", name:"adaBtcRatio", inputMode:"decimal" })
-        ),
-
         React.createElement("div", { className:"bg-slate-900 border border-slate-700 rounded-2xl p-4 space-y-3" },
           React.createElement("div", { className:"text-sm font-extrabold text-yellow-200" }, "🧱 黑天鵝觸發條件（手動填寫/切換）"),
           React.createElement(Field, { label:"ATH 回撤 (%) 例如 35 表示 -35%", name:"athDrawdownPct", inputMode:"numeric" }),
           React.createElement(Toggle01, { label:"BTC 跌破 200W MA（ON=是）", name:"below200w" }),
-          React.createElement(Field, { label:"買入期間的反彈 (%)（>15% 自動停止黑天鵝買入）", name:"reboundPct", inputMode:"numeric" }),
+          React.createElement(Field, { label:"買入期間的反彈 (%)（>15% 自動停止黑天鵝）", name:"reboundPct", inputMode:"numeric" }),
           React.createElement("div", { className:"text-[11px] text-slate-500" },
             state.blackSwan.active
               ? `黑天鵝進行中：原因=${state.blackSwan.reason}｜剩 ${state.blackSwan.remainingWeeks} 週｜週額約 ${Math.floor(state.blackSwan.weeklyBudget)}U`
-              : "黑天鵝未啟動（FNG<20 或 ATH回撤>=30 或 跌破200W 時會啟動，預備金分4週買入）"
+              : "黑天鵝未啟動（FNG<20 或 ATH回撤>=30 或 跌破200W 時啟動，預備金分4週買入）"
           )
         ),
 
@@ -734,7 +643,15 @@ DCA 本次投入：${usdtSpent} U
         }, "執行本週決策 (EXECUTE)")
       ),
 
-      /** 其餘頁面（轉換/掛單/SOP/LOG）略：為保持你目前運作正常，我不再改動結構 */
+      /** 工具頁：提醒你備份用途（不影響主流程） */
+      (tab==="tools") && React.createElement("div", { className:"bg-slate-800 rounded-2xl p-5 border border-slate-700 space-y-2" },
+        React.createElement("div", { className:"text-lg font-extrabold text-sky-300" }, "🧰 備份 / 還原"),
+        React.createElement("div", { className:"text-sm text-slate-300 leading-relaxed" },
+          "因為資料儲存在你的手機瀏覽器本機（localStorage），不同裝置不會自動同步。建議你每隔一段時間按「匯出」存一份備份 JSON，換手機或要在電腦繼續用時再「匯入」。"
+        )
+      ),
+
+      /** LOGS */
       React.createElement("div", { className:"bg-slate-950 rounded-2xl p-4 border border-slate-800" },
         React.createElement("div", { className:"text-xs text-slate-500 mono mb-2" }, "> SYSTEM LOGS"),
         state.logs.length === 0
@@ -756,13 +673,49 @@ DCA 本次投入：${usdtSpent} U
 
     /** Modal */
     modal && React.createElement("div", { className:"fixed inset-0 z-50 bg-black/70 flex items-center justify-center p-4" },
-      React.createElement("div", { className:"w-full max-w-md bg-slate-900 border border-slate-700 rounded-2xl p-5" },
-        React.createElement("div", { className:"text-lg font-black mb-3" }, modal.title),
-        React.createElement("pre", { className:"text-sm text-slate-200 whitespace-pre-wrap leading-relaxed" }, modal.body),
+      React.createElement("div", { className:"w-full max-w-lg bg-slate-900 border border-slate-700 rounded-2xl p-5" },
+
+        React.createElement("div", { className:"text-lg font-black mb-3" }, modal.title || "訊息"),
+
+        (modal.mode==="export") && React.createElement("div", { className:"space-y-3" },
+          React.createElement("div", { className:"text-sm text-slate-300" }, "以下 JSON 請複製保存（可貼到備忘錄/雲端/檔案）"),
+          React.createElement("textarea", {
+            readOnly: true,
+            value: modal.json || "",
+            className:"w-full h-56 bg-black/40 border border-slate-700 rounded-xl p-3 text-xs mono text-slate-200",
+          }),
+          React.createElement("button", {
+            className:"w-full bg-emerald-600 hover:bg-emerald-700 rounded-xl py-3 font-bold",
+            onClick: async ()=> {
+              const ok = await copyToClipboard(modal.json || "");
+              setModal({ mode:"info", title:"已複製", body: ok ? "備份 JSON 已複製到剪貼簿。" : "複製失敗，請手動長按全選複製。" });
+            }
+          }, "一鍵複製")
+        ),
+
+        (modal.mode==="import") && React.createElement("div", { className:"space-y-3" },
+          React.createElement("div", { className:"text-sm text-slate-300" }, "把你之前匯出的 JSON 貼在下面，按「匯入」會覆蓋目前資料。"),
+          React.createElement("textarea", {
+            id:"importBox",
+            placeholder:"在此貼上備份 JSON…",
+            className:"w-full h-56 bg-black/40 border border-slate-700 rounded-xl p-3 text-xs mono text-slate-200",
+          }),
+          React.createElement("button", {
+            className:"w-full bg-sky-600 hover:bg-sky-700 rounded-xl py-3 font-bold",
+            onClick: ()=> {
+              const el = document.getElementById("importBox");
+              const txt = el ? el.value : "";
+              importBackup(txt);
+            }
+          }, "匯入並覆蓋")
+        ),
+
+        (modal.mode==="info" || !modal.mode) && React.createElement("pre", { className:"text-sm text-slate-200 whitespace-pre-wrap leading-relaxed mono" }, modal.body || ""),
+
         React.createElement("button", {
           onClick:()=>setModal(null),
           className:"mt-4 w-full bg-slate-700 hover:bg-slate-600 rounded-xl py-3 font-bold"
-        }, "確認")
+        }, "關閉")
       )
     )
   );

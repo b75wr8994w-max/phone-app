@@ -5,66 +5,35 @@
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
   <title>Project 2030: 憲法守護者</title>
 
-  <!-- React -->
   <script src="https://unpkg.com/react@18/umd/react.development.js" crossorigin></script>
   <script src="https://unpkg.com/react-dom@18/umd/react-dom.development.js" crossorigin></script>
-
-  <!-- Babel -->
   <script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
-
-  <!-- Tailwind -->
   <script src="https://cdn.tailwindcss.com"></script>
 
-  <!-- Fonts -->
   <link href="https://fonts.googleapis.com/css2?family=Press+Start+2P&family=Noto+Sans+TC:wght@400;700&display=swap" rel="stylesheet">
 
   <style>
-    body {
-      background-color: #111827;
-      font-family: 'Noto Sans TC', sans-serif;
-      color: #e5e7eb;
-    }
-    .pixel-font { font-family: 'Press Start 2P', monospace; }
+    body { background-color:#111827; font-family:'Noto Sans TC',sans-serif; color:#e5e7eb; }
+    .pixel-font { font-family:'Press Start 2P', monospace; }
+    .retro-container { border:3px solid #3f3f46; box-shadow:6px 6px 0px #000; }
+    .retro-btn { transition:all .08s; box-shadow:3px 3px 0px #000; }
+    .retro-btn:active { transform:translate(2px,2px); box-shadow:1px 1px 0px #000; }
 
-    .retro-container {
-      border: 3px solid #3f3f46;
-      box-shadow: 6px 6px 0px #000;
-    }
-    .retro-btn {
-      transition: all 0.08s;
-      box-shadow: 3px 3px 0px #000;
-    }
-    .retro-btn:active {
-      transform: translate(2px, 2px);
-      box-shadow: 1px 1px 0px #000;
-    }
-
-    /* ✅ CRT 視覺層（用 ::before，永遠不吃點擊） */
-    .crt {
-      position: relative;
-    }
+    /* ✅ CRT 視覺層：永遠不吃點擊 */
+    .crt{ position:relative; }
     .crt::before{
-      content:"";
-      position: fixed;
-      inset: 0;
-      pointer-events: none;
-      z-index: 9999;
+      content:""; position:fixed; inset:0; pointer-events:none; z-index:9999;
       background:
         linear-gradient(rgba(18,16,16,0) 50%, rgba(0,0,0,0.22) 50%),
         linear-gradient(90deg, rgba(255,0,0,0.05), rgba(0,255,0,0.02), rgba(0,0,255,0.05));
-      background-size: 100% 2px, 3px 100%;
-      opacity: 0.7;
+      background-size:100% 2px, 3px 100%;
+      opacity:.7;
     }
 
-    /* iOS safe-area */
-    .pb-safe {
-      padding-bottom: env(safe-area-inset-bottom);
-    }
+    .pb-safe{ padding-bottom: env(safe-area-inset-bottom); }
 
-    /* Scrollbar (桌面有感，手機忽略) */
-    ::-webkit-scrollbar { width: 10px; }
-    ::-webkit-scrollbar-track { background: #111827; }
-    ::-webkit-scrollbar-thumb { background: #6b7280; border: 1px solid #000; }
+    /* ✅ iOS：避免點擊縮放、改善輸入體驗 */
+    input, button, select, textarea { font-size:16px; } /* iOS <16px 會自動放大/怪行為 */
   </style>
 </head>
 
@@ -72,18 +41,16 @@
   <div id="root"></div>
 
   <script type="text/babel">
-    const { useState, useEffect } = React;
+    const { useState, useEffect, useMemo } = React;
 
-    // --- 常數 ---
     const GOAL_BTC = 3.0;
     const TARGET_DATE = new Date("2030-12-31").getTime();
-    const SAVE_KEY = "project2030_save_github_pages_v2";
+    const SAVE_KEY = "project2030_save_github_pages_v3";
 
-    // --- 初始狀態 ---
     const INITIAL_STATE = {
-      btc: 0.0,              // 熱錢包 BTC
-      coldWalletCount: 0.0,  // 冷錢包 BTC
-      usdtReserve: 0,        // 預備金 USDT
+      btc: 0.0,
+      coldWalletCount: 0.0,
+      usdtReserve: 0,
       eth: 34.0,
       ada: 74000.0,
       logs: [],
@@ -93,52 +60,102 @@
 
     function App(){
       const [gameState, setGameState] = useState(INITIAL_STATE);
+      const [activeTab, setActiveTab] = useState("dashboard");
+      const [modal, setModal] = useState(null);
+
+      /**
+       * ✅ 關鍵：inputs 用「兩層」
+       * - draft：你正在輸入的字串（不會造成鍵盤亂跳）
+       * - inputs：真正執行邏輯用的數值（只在 blur 或按 EXECUTE 時才同步）
+       */
+      const [draft, setDraft] = useState({
+        btcPrice: "90000",
+        ethBtcRatio: "0.05",
+        adaBtcRatio: "0.000008",
+      });
+
       const [inputs, setInputs] = useState({
         fngIndex: 50,
         btcPrice: 90000,
         ethBtcRatio: 0.05,
         adaBtcRatio: 0.000008,
       });
-      const [activeTab, setActiveTab] = useState("dashboard");
-      const [modal, setModal] = useState(null);
 
-      // --- Load / Save ---
+      // --- Load/Save ---
       useEffect(() => {
         try {
           const saved = localStorage.getItem(SAVE_KEY);
           if (saved) {
-            setGameState(JSON.parse(saved));
+            const parsed = JSON.parse(saved);
+            setGameState(parsed);
+
+            // 同步 draft / inputs（避免讀檔後不一致）
+            setInputs(prev => ({
+              ...prev,
+              btcPrice: 90000,
+              ethBtcRatio: 0.05,
+              adaBtcRatio: 0.000008,
+            }));
+            setDraft({
+              btcPrice: "90000",
+              ethBtcRatio: "0.05",
+              adaBtcRatio: "0.000008",
+            });
           } else {
             addLog("系統初始化完成。目標：2030年累積 3 BTC。", "system");
           }
-        } catch(e) {
-          console.error(e);
-        }
+        } catch(e) {}
       }, []);
 
       useEffect(() => {
         localStorage.setItem(SAVE_KEY, JSON.stringify(gameState));
       }, [gameState]);
 
-      // --- Helpers ---
       const addLog = (msg, type="info") => {
         const timestamp = new Date().toLocaleDateString('zh-TW', {month:'2-digit', day:'2-digit'});
         const newLog = { id: Date.now() + Math.random(), date: timestamp, msg, type };
         setGameState(prev => ({ ...prev, logs: [newLog, ...prev.logs].slice(0, 80) }));
       };
 
-      const getDaysRemaining = () => {
+      const daysRemaining = useMemo(() => {
         const diff = TARGET_DATE - Date.now();
         return Math.max(0, Math.ceil(diff / 86400000));
-      };
+      }, []);
 
       const totalBTC = () => gameState.btc + gameState.coldWalletCount;
       const progress = () => Math.min(100, (totalBTC() / GOAL_BTC) * 100);
 
-      // --- 核心：每週策略 ---
+      // ✅ 把 draft -> inputs（在 blur 或按下 EXECUTE 之前呼叫）
+      const syncDraftToInputs = () => {
+        const toNum = (s, fallback) => {
+          const n = parseFloat(String(s).replace(/,/g,''));
+          return Number.isFinite(n) ? n : fallback;
+        };
+        setInputs(prev => ({
+          ...prev,
+          btcPrice: toNum(draft.btcPrice, prev.btcPrice),
+          ethBtcRatio: toNum(draft.ethBtcRatio, prev.ethBtcRatio),
+          adaBtcRatio: toNum(draft.adaBtcRatio, prev.adaBtcRatio),
+        }));
+      };
+
+      const checkAlerts = (ethRatio, adaRatio, currentState) => {
+        if (ethRatio >= 0.06 && currentState.eth >= 10) {
+          addLog(`警報: ETH/BTC 達 ${ethRatio}，請檢查戰略轉換！`, "alert");
+        }
+        if (adaRatio >= 0.000010 && currentState.ada >= 40000) {
+          addLog(`警報: ADA/BTC 達 ${adaRatio}，逃生艙開啟！`, "alert");
+        }
+      };
+
       const executeWeeklyStrategy = () => {
-        const { fngIndex, btcPrice } = inputs;
-        if (!btcPrice || btcPrice <= 0) {
+        // ✅ 執行前先同步（你輸入到一半也不會漏）
+        syncDraftToInputs();
+
+        const { fngIndex } = inputs;
+        const btcPrice = parseFloat(String(draft.btcPrice).replace(/,/g,''));
+
+        if (!Number.isFinite(btcPrice) || btcPrice <= 0) {
           setModal({ title: "錯誤", content: "BTC 價格必須 > 0" });
           return;
         }
@@ -153,25 +170,21 @@
         if (fngIndex < 20) {
           action = "極度恐慌！啟動全軍突擊 (3份+預備金)";
           usdtSpent = 180;
-
           if (gameState.usdtReserve > 0) {
             reserveUsed = Math.floor(gameState.usdtReserve * 0.25);
             usdtSpent += reserveUsed;
           }
           greedCounter = 0;
-
         } else if (fngIndex >= 20 && fngIndex <= 40) {
           action = "市場恐懼，加碼進攻 (2份買/1份存)";
           usdtSpent = 120;
           usdtSaved = 60;
           greedCounter = 0;
-
         } else if (fngIndex > 40 && fngIndex <= 75) {
           action = "市場平穩，保守推進 (1份買/2份存)";
           usdtSpent = 60;
           usdtSaved = 120;
           greedCounter = 0;
-
         } else {
           if (greedCounter >= 8) {
             action = "強制條款：長牛保險啟動 (1份買/2份存)";
@@ -186,9 +199,7 @@
           }
         }
 
-        if (usdtSpent > 0) {
-          btcBought = usdtSpent / btcPrice;
-        }
+        if (usdtSpent > 0) btcBought = usdtSpent / btcPrice;
 
         const newState = {
           ...gameState,
@@ -197,7 +208,6 @@
           consecutiveGreedWeeks: greedCounter,
           lastCheckDate: new Date().toISOString(),
         };
-
         setGameState(newState);
 
         addLog(`週報: ${action}`, usdtSpent > 0 ? "success" : "warning");
@@ -205,8 +215,13 @@
         if (usdtSaved > 0) addLog(`預備金 +${usdtSaved} U`, "info");
         if (reserveUsed > 0) addLog(`動用預備金 -${reserveUsed} U`, "warning");
 
-        // 策略警報
-        checkAlerts(inputs.ethBtcRatio, inputs.adaBtcRatio, newState);
+        const ethRatio = parseFloat(draft.ethBtcRatio);
+        const adaRatio = parseFloat(draft.adaBtcRatio);
+        checkAlerts(
+          Number.isFinite(ethRatio) ? ethRatio : inputs.ethBtcRatio,
+          Number.isFinite(adaRatio) ? adaRatio : inputs.adaBtcRatio,
+          newState
+        );
 
         setModal({
           title: "執行報告",
@@ -224,26 +239,13 @@
         });
       };
 
-      const checkAlerts = (ethRatio, adaRatio, currentState) => {
-        if (ethRatio >= 0.06 && currentState.eth >= 10) {
-          addLog(`警報: ETH/BTC 達 ${ethRatio}，請檢查戰略轉換！`, "alert");
-        }
-        if (adaRatio >= 0.000010 && currentState.ada >= 40000) {
-          addLog(`警報: ADA/BTC 達 ${adaRatio}，逃生艙開啟！`, "alert");
-        }
-      };
-
       const moveToColdWallet = () => {
         if (gameState.btc < 0.05) {
           setModal({ title: "指令拒絕", content: "未達 0.05 BTC 門檻，請節省手續費。" });
           return;
         }
         const amount = gameState.btc;
-        setGameState(prev => ({
-          ...prev,
-          btc: 0,
-          coldWalletCount: prev.coldWalletCount + amount,
-        }));
+        setGameState(prev => ({ ...prev, btc: 0, coldWalletCount: prev.coldWalletCount + amount }));
         addLog(`提領 ${amount.toFixed(6)} BTC 至冷錢包`, "secure");
         setModal({ title: "資產轉移完成", content: `成功移入冷錢包：${amount.toFixed(6)} BTC` });
       };
@@ -255,7 +257,14 @@
         setModal({ title:"已重置", content:"資料已清空，重新開始。" });
       };
 
-      // --- UI Components ---
+      const fngColor = () => {
+        const n = inputs.fngIndex;
+        if (n < 20) return "text-red-300";
+        if (n <= 40) return "text-yellow-300";
+        if (n <= 75) return "text-gray-200";
+        return "text-green-300";
+      };
+
       const StatusBar = () => (
         <div className="bg-gray-800 p-4 retro-container mb-4">
           <div className="flex items-start justify-between gap-3">
@@ -263,14 +272,10 @@
               <div className="pixel-font text-green-300 text-sm mb-1">
                 LV.{Math.floor(totalBTC()*10)} 守護者
               </div>
-              <div className="text-xs text-gray-400">剩餘 {getDaysRemaining()} 天</div>
+              <div className="text-xs text-gray-400">剩餘 {daysRemaining} 天</div>
               <div className="text-xs text-gray-500">執行人：陳祥豪</div>
             </div>
-
-            <button
-              onClick={resetAll}
-              className="text-xs bg-gray-700 hover:bg-gray-600 px-3 py-2 rounded retro-btn"
-            >
+            <button onClick={resetAll} className="text-xs bg-gray-700 hover:bg-gray-600 px-3 py-2 rounded retro-btn">
               重置
             </button>
           </div>
@@ -292,10 +297,7 @@
           <div className="bg-gray-800 p-4 rounded-xl border-l-4 border-green-500">
             <div className="text-xs text-gray-400 font-bold mb-1">熱錢包 BTC</div>
             <div className="text-2xl font-bold font-mono">{gameState.btc.toFixed(6)}</div>
-            <button
-              onClick={moveToColdWallet}
-              className="mt-3 w-full bg-blue-700 hover:bg-blue-600 text-white py-2 rounded retro-btn text-sm"
-            >
+            <button onClick={moveToColdWallet} className="mt-3 w-full bg-blue-700 hover:bg-blue-600 text-white py-2 rounded retro-btn text-sm">
               提領至冷錢包
             </button>
             <div className="text-[11px] text-gray-500 mt-2">門檻：0.05 BTC</div>
@@ -313,9 +315,7 @@
                 <div className="text-xs text-gray-400 font-bold mb-1">預備金 USDT</div>
                 <div className="text-2xl font-bold font-mono">${gameState.usdtReserve.toLocaleString()}</div>
               </div>
-              <div className="text-xs text-gray-500 text-right">
-                黑天鵝彈藥庫<br/>（未投入份額）
-              </div>
+              <div className="text-xs text-gray-500 text-right">黑天鵝彈藥庫</div>
             </div>
           </div>
 
@@ -342,22 +342,29 @@
 
             <label className="text-xs text-gray-400 block mb-1">本週 BTC 價格 (USDT)</label>
             <input
-              type="number"
+              inputMode="decimal"
               className="w-full bg-gray-900 text-white p-3 rounded-lg border border-gray-700 text-lg font-mono"
-              value={inputs.btcPrice}
-              onChange={e => setInputs({ ...inputs, btcPrice: parseFloat(e.target.value) })}
+              value={draft.btcPrice}
+              onInput={(e)=>setDraft(d=>({...d, btcPrice: e.target.value}))}
+              onBlur={syncDraftToInputs}
             />
 
+            {/* ✅ 1. 恐貪指數用拉的 */}
             <div className="mt-4">
               <label className="text-xs text-gray-400 block mb-2">
-                恐懼與貪婪指數（0-100）：<span className="font-mono text-white">{inputs.fngIndex}</span>
+                恐懼與貪婪指數（0-100）：
+                <span className={"ml-2 font-mono " + fngColor()}>{inputs.fngIndex}</span>
               </label>
+
               <input
-                type="range" min="0" max="100"
+                type="range"
+                min="0"
+                max="100"
                 value={inputs.fngIndex}
-                onChange={e => setInputs({ ...inputs, fngIndex: parseInt(e.target.value) })}
+                onInput={(e)=>setInputs(p=>({...p, fngIndex: parseInt(e.target.value,10)}))}
                 className="w-full accent-green-500"
               />
+
               <div className="flex justify-between text-xs mt-1 text-gray-500">
                 <span className="text-red-300">恐慌</span>
                 <span>中性</span>
@@ -365,25 +372,28 @@
               </div>
             </div>
 
+            {/* 監控數據 */}
             <div className="mt-4 border-t border-gray-700 pt-4">
               <div className="text-xs text-gray-400 mb-2">監控數據（選填）</div>
               <div className="grid grid-cols-2 gap-3">
                 <div>
                   <label className="text-[11px] text-gray-500">ETH/BTC 匯率</label>
                   <input
-                    type="number" step="0.001"
+                    inputMode="decimal"
                     className="w-full bg-gray-900 p-2 rounded border border-gray-700 font-mono"
-                    value={inputs.ethBtcRatio}
-                    onChange={e => setInputs({ ...inputs, ethBtcRatio: parseFloat(e.target.value) })}
+                    value={draft.ethBtcRatio}
+                    onInput={(e)=>setDraft(d=>({...d, ethBtcRatio: e.target.value}))}
+                    onBlur={syncDraftToInputs}
                   />
                 </div>
                 <div>
                   <label className="text-[11px] text-gray-500">ADA/BTC 匯率</label>
                   <input
-                    type="number" step="0.000001"
+                    inputMode="decimal"
                     className="w-full bg-gray-900 p-2 rounded border border-gray-700 font-mono"
-                    value={inputs.adaBtcRatio}
-                    onChange={e => setInputs({ ...inputs, adaBtcRatio: parseFloat(e.target.value) })}
+                    value={draft.adaBtcRatio}
+                    onInput={(e)=>setDraft(d=>({...d, adaBtcRatio: e.target.value}))}
+                    onBlur={syncDraftToInputs}
                   />
                 </div>
               </div>
@@ -421,54 +431,31 @@
       );
 
       const Strategy = () => (
-        <div className="space-y-4">
-          <div className="bg-gray-800 p-5 rounded-xl retro-container">
-            <h2 className="pixel-font text-purple-300 text-sm mb-4">⚔️ 戰略轉換模組（提醒用）</h2>
-
-            <div className="bg-gray-900 p-4 rounded border-l-4 border-purple-600 mb-4">
-              <div className="flex justify-between items-center mb-2">
-                <div className="font-bold text-white">ETH 策略</div>
-                <div className="text-xs bg-gray-800 px-2 py-1 rounded text-gray-300">持有：{gameState.eth.toFixed(2)}</div>
-              </div>
-
-              <label className="text-xs text-gray-500">ETH/BTC 匯率</label>
-              <input
-                type="number"
-                className="w-full bg-black/40 p-2 rounded border border-gray-700 font-mono mt-1"
-                value={inputs.ethBtcRatio}
-                onChange={e => setInputs({ ...inputs, ethBtcRatio: parseFloat(e.target.value) })}
-              />
-
-              <div className="mt-3 p-3 bg-black/40 rounded text-xs text-gray-300 space-y-1">
-                <div className={inputs.ethBtcRatio >= 0.06 ? "text-yellow-300 font-bold" : ""}>• 0.060：第一階（5顆換BTC + 5顆換U掛單）</div>
-                <div className={inputs.ethBtcRatio >= 0.065 ? "text-yellow-300 font-bold" : ""}>• 0.065：第二階（6顆換BTC + 6顆換U掛單）</div>
-                <div className={inputs.ethBtcRatio >= 0.075 ? "text-yellow-300 font-bold" : ""}>• 0.075：第三階（全換 BTC）</div>
+        <div className="bg-gray-800 p-5 rounded-xl retro-container">
+          <h2 className="pixel-font text-purple-300 text-sm mb-3">⚔️ 戰略轉換（提醒）</h2>
+          <div className="text-sm text-gray-300 space-y-3">
+            <div className="bg-gray-900 p-4 rounded border-l-4 border-purple-600">
+              <div className="font-bold">ETH 策略</div>
+              <div className="text-xs text-gray-500 mt-1">目前 ETH：{gameState.eth.toFixed(2)}</div>
+              <div className="mt-2 text-xs space-y-1">
+                <div className={inputs.ethBtcRatio >= 0.06 ? "text-yellow-300 font-bold" : ""}>• 0.060：第一階</div>
+                <div className={inputs.ethBtcRatio >= 0.065 ? "text-yellow-300 font-bold" : ""}>• 0.065：第二階</div>
+                <div className={inputs.ethBtcRatio >= 0.075 ? "text-yellow-300 font-bold" : ""}>• 0.075：第三階</div>
               </div>
             </div>
 
             <div className="bg-gray-900 p-4 rounded border-l-4 border-blue-600">
-              <div className="flex justify-between items-center mb-2">
-                <div className="font-bold text-white">ADA 逃生艙</div>
-                <div className="text-xs bg-gray-800 px-2 py-1 rounded text-gray-300">持有：{gameState.ada.toLocaleString()}</div>
-              </div>
-
-              <label className="text-xs text-gray-500">ADA/BTC 匯率</label>
-              <input
-                type="number" step="0.000001"
-                className="w-full bg-black/40 p-2 rounded border border-gray-700 font-mono mt-1"
-                value={inputs.adaBtcRatio}
-                onChange={e => setInputs({ ...inputs, adaBtcRatio: parseFloat(e.target.value) })}
-              />
-
-              <div className="mt-3 p-3 bg-black/40 rounded text-xs text-gray-300 space-y-1">
-                <div className={inputs.adaBtcRatio >= 0.000010 ? "text-red-300 font-bold" : ""}>• 0.000010：4萬 ADA 換 BTC</div>
-                <div className={inputs.adaBtcRatio >= 0.000013 ? "text-red-300 font-bold" : ""}>• 0.000013：3.4萬 ADA 換 BTC</div>
+              <div className="font-bold">ADA 逃生艙</div>
+              <div className="text-xs text-gray-500 mt-1">目前 ADA：{gameState.ada.toLocaleString()}</div>
+              <div className="mt-2 text-xs space-y-1">
+                <div className={inputs.adaBtcRatio >= 0.000010 ? "text-red-300 font-bold" : ""}>• 0.000010：第一階</div>
+                <div className={inputs.adaBtcRatio >= 0.000013 ? "text-red-300 font-bold" : ""}>• 0.000013：第二階</div>
               </div>
             </div>
 
-            <p className="text-xs text-center text-gray-500 mt-4">
-              *此頁為提醒與紀律系統，實際交易請在交易所執行。
-            </p>
+            <div className="text-xs text-gray-500">
+              *匯率輸入在「每週任務」頁，這裡只做提示顯示。
+            </div>
           </div>
         </div>
       );
@@ -476,50 +463,31 @@
       const Constitution = () => (
         <div className="bg-gray-800 p-5 rounded-xl retro-container text-gray-200 space-y-3">
           <h2 className="pixel-font text-yellow-300 text-sm mb-2">📜 憲法（SOP）</h2>
-
           <div className="bg-gray-900 p-4 rounded">
             <div className="font-bold mb-1">1. 定投紀律</div>
-            <div className="text-sm text-gray-300">
-              恐慌 (&lt;20) 全力買進；貪婪 (&gt;75) 轉存 U。<br/>
-              不做預測，只執行規則。
-            </div>
+            <div className="text-sm text-gray-300">恐慌(&lt;20) 全力買進；貪婪(&gt;75) 轉存 U。不做預測，只執行規則。</div>
           </div>
-
           <div className="bg-gray-900 p-4 rounded">
             <div className="font-bold mb-1">2. 冷錢包鐵律</div>
-            <div className="text-sm text-gray-300">
-              交易所累積滿 <span className="text-red-300 font-bold">0.05 BTC</span> 必須提領。<br/>
-              目的：降低交易所風險、避免情緒操作。
-            </div>
+            <div className="text-sm text-gray-300">交易所累積滿 <span className="text-red-300 font-bold">0.05 BTC</span> 必須提領。</div>
           </div>
-
           <div className="bg-gray-900 p-4 rounded">
             <div className="font-bold mb-1">3. 自我契約</div>
             <div className="text-sm text-gray-400 italic border-l-2 border-gray-700 pl-3">
               "我不預測市場，我只執行規則。只要活著，時間會帶我到終點。"
             </div>
           </div>
-
-          <div className="text-center text-xs text-gray-500 pt-3">
-            執行人：陳祥豪<br/>
-            執行期間：2026.01 - 2030.12
-          </div>
         </div>
       );
 
-      // --- Layout ---
       return (
         <div className="crt min-h-screen">
-          {/* Modal */}
           {modal && (
             <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/80 p-4">
               <div className="bg-gray-800 rounded-xl max-w-sm w-full p-6 border border-gray-600 shadow-2xl">
                 <h3 className="text-lg font-bold text-white mb-4">{modal.title}</h3>
                 <div className="text-gray-300 mb-6">{modal.content}</div>
-                <button
-                  onClick={() => setModal(null)}
-                  className="w-full bg-gray-700 hover:bg-gray-600 py-3 rounded-lg text-white font-bold retro-btn"
-                >
+                <button onClick={()=>setModal(null)} className="w-full bg-gray-700 hover:bg-gray-600 py-3 rounded-lg text-white font-bold retro-btn">
                   確認
                 </button>
               </div>
@@ -535,26 +503,13 @@
             <StatusBar />
             <Inventory />
 
-            {/* Tabs */}
             <div className="flex gap-2 mb-4">
-              <button
-                className={"px-3 py-2 rounded text-xs pixel-font " + (activeTab==="dashboard" ? "bg-green-700 text-white" : "bg-gray-800 text-gray-400")}
-                onClick={() => setActiveTab("dashboard")}
-              >
-                每週任務
-              </button>
-              <button
-                className={"px-3 py-2 rounded text-xs pixel-font " + (activeTab==="strategy" ? "bg-purple-700 text-white" : "bg-gray-800 text-gray-400")}
-                onClick={() => setActiveTab("strategy")}
-              >
-                戰略轉換
-              </button>
-              <button
-                className={"px-3 py-2 rounded text-xs pixel-font " + (activeTab==="constitution" ? "bg-yellow-700 text-white" : "bg-gray-800 text-gray-400")}
-                onClick={() => setActiveTab("constitution")}
-              >
-                憲法
-              </button>
+              <button className={"px-3 py-2 rounded text-xs pixel-font " + (activeTab==="dashboard" ? "bg-green-700 text-white" : "bg-gray-800 text-gray-400")}
+                onClick={()=>setActiveTab("dashboard")}>每週任務</button>
+              <button className={"px-3 py-2 rounded text-xs pixel-font " + (activeTab==="strategy" ? "bg-purple-700 text-white" : "bg-gray-800 text-gray-400")}
+                onClick={()=>setActiveTab("strategy")}>戰略轉換</button>
+              <button className={"px-3 py-2 rounded text-xs pixel-font " + (activeTab==="constitution" ? "bg-yellow-700 text-white" : "bg-gray-800 text-gray-400")}
+                onClick={()=>setActiveTab("constitution")}>憲法</button>
             </div>
 
             {activeTab === "dashboard" && <Dashboard />}
@@ -562,28 +517,21 @@
             {activeTab === "constitution" && <Constitution />}
           </div>
 
-          {/* 底部固定導覽（可選，但手機好用） */}
           <div className="fixed bottom-0 left-0 right-0 bg-gray-900/90 border-t border-gray-700 pb-safe z-40">
             <div className="max-w-3xl mx-auto px-2">
               <div className="flex justify-around items-center h-16">
-                <button
-                  onClick={() => setActiveTab("dashboard")}
-                  className={"flex flex-col items-center justify-center w-full h-full " + (activeTab==="dashboard" ? "text-green-300" : "text-gray-500")}
-                >
+                <button onClick={()=>setActiveTab("dashboard")}
+                  className={"flex flex-col items-center justify-center w-full h-full " + (activeTab==="dashboard" ? "text-green-300" : "text-gray-500")}>
                   <div className="pixel-font text-[10px]">HOME</div>
-                  <div className="text-[10px] mt-1">行動中心</div>
+                  <div className="text-[10px] mt-1">行動</div>
                 </button>
-                <button
-                  onClick={() => setActiveTab("strategy")}
-                  className={"flex flex-col items-center justify-center w-full h-full " + (activeTab==="strategy" ? "text-purple-300" : "text-gray-500")}
-                >
+                <button onClick={()=>setActiveTab("strategy")}
+                  className={"flex flex-col items-center justify-center w-full h-full " + (activeTab==="strategy" ? "text-purple-300" : "text-gray-500")}>
                   <div className="pixel-font text-[10px]">ALERT</div>
                   <div className="text-[10px] mt-1">戰略</div>
                 </button>
-                <button
-                  onClick={() => setActiveTab("constitution")}
-                  className={"flex flex-col items-center justify-center w-full h-full " + (activeTab==="constitution" ? "text-yellow-300" : "text-gray-500")}
-                >
+                <button onClick={()=>setActiveTab("constitution")}
+                  className={"flex flex-col items-center justify-center w-full h-full " + (activeTab==="constitution" ? "text-yellow-300" : "text-gray-500")}>
                   <div className="pixel-font text-[10px]">SOP</div>
                   <div className="text-[10px] mt-1">憲法</div>
                 </button>

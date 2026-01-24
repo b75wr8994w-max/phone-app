@@ -1,234 +1,374 @@
-<!DOCTYPE html>
+<!doctype html>
 <html lang="zh-TW">
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover" />
   <title>Project 2030：憲法守護者</title>
 
-  <!-- React -->
-  <script src="https://unpkg.com/react@18/umd/react.production.min.js"></script>
-  <script src="https://unpkg.com/react-dom@18/umd/react-dom.production.min.js"></script>
-
   <!-- Tailwind -->
   <script src="https://cdn.tailwindcss.com"></script>
 
-  <link href="https://fonts.googleapis.com/css2?family=Press+Start+2P&family=Noto+Sans+TC:wght@400;700&display=swap" rel="stylesheet">
+  <!-- React (production UMD) -->
+  <script src="https://unpkg.com/react@18/umd/react.production.min.js" crossorigin></script>
+  <script src="https://unpkg.com/react-dom@18/umd/react-dom.production.min.js" crossorigin></script>
 
   <style>
-    body{
-      margin:0;
-      background:#0b1220;
-      color:#e5e7eb;
-      font-family:'Noto Sans TC',sans-serif;
-    }
-    .pixel{font-family:'Press Start 2P',cursive;}
-    .card{
-      background:rgba(15,23,42,.85);
-      border:1px solid rgba(255,255,255,.08);
-      border-radius:16px;
-      box-shadow:0 12px 40px rgba(0,0,0,.45);
-    }
-    input{font-size:16px;} /* iOS 鍵盤穩定 */
-    .pb-safe{padding-bottom:calc(88px + env(safe-area-inset-bottom));}
+    body { background:#0b1220; -webkit-tap-highlight-color: transparent; }
+    .safe-b { padding-bottom: env(safe-area-inset-bottom); }
+    input, button, textarea, select { font-size: 16px; } /* iOS: 防縮放/跳鍵盤 */
   </style>
 </head>
 
-<body>
-<div id="root"></div>
+<body class="text-slate-100">
+  <div id="root"></div>
 
-<script>
-const {useState,useEffect,useRef,useMemo} = React;
+  <script>
+    const { useEffect, useMemo, useRef, useState } = React;
 
-const GOAL_BTC = 3;
-const TARGET_DATE = new Date("2030-12-31").getTime();
-const SAVE_KEY = "project2030_final_save";
+    const GOAL_BTC = 3.0;
+    const TARGET_DATE = new Date("2030-12-31T00:00:00+08:00").getTime();
+    const SAVE_KEY = "project2030_mobile_save_STABLE";
 
-const INITIAL_STATE = {
-  btc:0,
-  coldWalletCount:0,
-  usdtReserve:0,
-  eth:34,
-  ada:74000,
-  logs:[],
-  consecutiveGreedWeeks:0
-};
+    const INITIAL_STATE = {
+      btcHot: 0.0,
+      btcCold: 0.0,
+      usdtReserve: 0,
+      eth: 34.0,
+      ada: 74000.0,
+      logs: [],
+      consecutiveGreedWeeks: 0,
+    };
 
-function mmdd(){
-  const d=new Date();
-  return `${String(d.getMonth()+1).padStart(2,'0')}/${String(d.getDate()).padStart(2,'0')}`;
-}
-function clamp(n,a,b){return Math.max(a,Math.min(b,n));}
-
-function App(){
-  const [state,setState]=useState(INITIAL_STATE);
-  const [tab,setTab]=useState("dashboard");
-  const [modal,setModal]=useState(null);
-
-  const inputRef=useRef({
-    btcPrice:"90000",
-    fng:"50",
-    eth:"0.05",
-    ada:"0.000008"
-  });
-
-  const [ui,setUi]=useState({
-    btcPrice:90000,
-    fngIndex:50,
-    eth:0.05,
-    ada:0.000008
-  });
-
-  useEffect(()=>{
-    const saved=localStorage.getItem(SAVE_KEY);
-    if(saved) setState(JSON.parse(saved));
-    else addLog("系統初始化完成。目標：2030 累積 3 BTC。","system");
-  },[]);
-
-  useEffect(()=>{
-    localStorage.setItem(SAVE_KEY,JSON.stringify(state));
-  },[state]);
-
-  function addLog(msg,type="info"){
-    setState(p=>({...p,logs:[{id:Date.now(),date:mmdd(),msg,type},...p.logs].slice(0,50)}));
-  }
-
-  const totalBTC=state.btc+state.coldWalletCount;
-  const progress=clamp(totalBTC/GOAL_BTC*100,0,100);
-  const daysLeft=Math.ceil((TARGET_DATE-Date.now())/(1000*60*60*24));
-
-  function executeWeekly(){
-    const fng=clamp(ui.fngIndex,0,100);
-    const price=ui.btcPrice;
-    if(!price||price<=0){setModal("BTC 價格錯誤");return;}
-
-    let spent=0,saved=0,used=0,greed=state.consecutiveGreedWeeks,action="";
-    if(fng<20){
-      action="極度恐慌：全買+預備金";
-      spent=180;
-      if(state.usdtReserve>0){used=Math.floor(state.usdtReserve*0.25);spent+=used;}
-      greed=0;
-    }else if(fng<=40){
-      action="恐懼：2買1存";spent=120;saved=60;greed=0;
-    }else if(fng<=75){
-      action="中性：1買2存";spent=60;saved=120;greed=0;
-    }else{
-      if(greed>=8){action="長牛保險";spent=60;saved=120;greed++;}
-      else{action="貪婪：全存";saved=180;greed++;}
+    function fmt(n, d=4){ return Number(n||0).toFixed(d); }
+    function todayMMDD(){
+      return new Date().toLocaleDateString('zh-TW', {month:'2-digit', day:'2-digit'});
+    }
+    function clamp(v,min,max){ return Math.min(max, Math.max(min,v)); }
+    function parseNum(s, fallback=0){
+      const n = Number(String(s ?? "").replace(/,/g,''));
+      return Number.isFinite(n) ? n : fallback;
     }
 
-    const bought=spent>0?spent/price:0;
+    function App(){
+      const [state, setState] = useState(INITIAL_STATE);
+      const [tab, setTab] = useState("home");
+      const [modal, setModal] = useState(null);
 
-    const next={
-      ...state,
-      btc:state.btc+bought,
-      usdtReserve:state.usdtReserve+saved-used,
-      consecutiveGreedWeeks:greed
-    };
-    setState(next);
+      // ✅ iPhone 穩定：數字輸入採「非受控」+ onBlur 套用，避免鍵盤每輸入就收
+      const draftRef = useRef({
+        btcPrice: "90000",
+        ethBtcRatio: "0.05",
+        adaBtcRatio: "0.000008",
+        fngIndex: "50"
+      });
 
-    addLog(`週報：${action}`,spent?"success":"warning");
-    if(bought) addLog(`買入 ${bought.toFixed(6)} BTC @ ${price}`,"success");
+      // UI 實際採用值（週報計算用）
+      const [ui, setUi] = useState({
+        btcPrice: 90000,
+        fngIndex: 50,
+        ethBtcRatio: 0.05,
+        adaBtcRatio: 0.000008
+      });
 
-    setModal(`投入 ${spent}U，獲得 ${bought.toFixed(6)} BTC`);
-  }
+      const addLog = (msg, type="info") => {
+        const log = { id: Date.now() + Math.random(), date: todayMMDD(), msg, type };
+        setState(prev => ({ ...prev, logs: [log, ...prev.logs].slice(0, 60) }));
+      };
 
-  function moveCold(){
-    if(state.btc<0.05){setModal("未達 0.05 BTC");return;}
-    const amt=state.btc;
-    setState(p=>({...p,btc:0,coldWalletCount:p.coldWalletCount+amt}));
-    addLog(`提領 ${amt.toFixed(6)} BTC 至冷錢包`,"secure");
-  }
-
-  /* 🔹 恐懼貪婪指數：手動輸入版（唯一改動） */
-  function FngInput(){
-    return (
-      React.createElement("div",null,
-        React.createElement("label",{className:"text-xs text-slate-300 mb-1 block"},"恐懼與貪婪指數 (0–100)"),
-        React.createElement("input",{
-          type:"text",
-          inputMode:"numeric",
-          defaultValue:inputRef.current.fng,
-          className:"w-full bg-black/40 border border-white/10 rounded-xl px-3 py-3 font-mono",
-          onChange:e=>inputRef.current.fng=e.target.value,
-          onBlur:e=>{
-            let n=parseInt(inputRef.current.fng);
-            if(!Number.isFinite(n)) n=ui.fngIndex;
-            n=clamp(n,0,100);
-            inputRef.current.fng=String(n);
-            setUi(p=>({...p,fngIndex:n}));
+      useEffect(() => {
+        try{
+          const saved = localStorage.getItem(SAVE_KEY);
+          if(saved){
+            setState(JSON.parse(saved));
+          }else{
+            addLog("系統初始化完成。目標：2030 累積 3 BTC。", "system");
           }
-        })
-      )
-    );
-  }
-
-  function NumberField(label,key){
-    return React.createElement("div",null,
-      React.createElement("label",{className:"text-xs text-slate-300 mb-1 block"},label),
-      React.createElement("input",{
-        type:"text",inputMode:"decimal",
-        defaultValue:inputRef.current[key],
-        className:"w-full bg-black/40 border border-white/10 rounded-xl px-3 py-3 font-mono",
-        onChange:e=>inputRef.current[key]=e.target.value,
-        onBlur:e=>{
-          const v=parseFloat(inputRef.current[key]);
-          if(Number.isFinite(v)) setUi(p=>({...p,[key==="btcPrice"?"btcPrice":key]:v}));
+        }catch(e){
+          console.log(e);
         }
-      })
-    );
-  }
+        // eslint-disable-next-line
+      }, []);
 
-  return React.createElement("div",null,
-    React.createElement("div",{className:"sticky top-0 bg-black/80 p-4"},
-      React.createElement("div",{className:"text-xs flex justify-between"},
-        React.createElement("span",{className:"pixel"},"LV."+Math.floor(totalBTC*10)),
-        React.createElement("span",{className:"font-mono"},`${totalBTC.toFixed(4)}/${GOAL_BTC}`)
-      ),
-      React.createElement("div",{className:"h-3 bg-white/10 rounded-full overflow-hidden mt-2"},
-        React.createElement("div",{className:"h-full bg-emerald-500",style:{width:progress+"%"}})
-      ),
-      React.createElement("div",{className:"text-[10px] text-right text-slate-400"},`剩餘 ${daysLeft} 天`)
-    ),
+      useEffect(() => {
+        try{ localStorage.setItem(SAVE_KEY, JSON.stringify(state)); }catch(e){}
+      }, [state]);
 
-    React.createElement("div",{className:"p-4 pb-safe space-y-4 max-w-xl mx-auto"},
-      React.createElement("div",{className:"grid grid-cols-2 gap-3"},
-        React.createElement("div",{className:"card p-4"},
-          React.createElement("div",{className:"text-xs"},"熱錢包"),
-          React.createElement("div",{className:"text-2xl font-mono"},state.btc.toFixed(4)),
-          React.createElement("button",{onClick:moveCold,className:"mt-2 w-full bg-white/10 rounded-xl py-2"},"提領")
-        ),
-        React.createElement("div",{className:"card p-4"},
-          React.createElement("div",{className:"text-xs"},"冷錢包"),
-          React.createElement("div",{className:"text-2xl font-mono"},state.coldWalletCount.toFixed(4))
+      const daysLeft = useMemo(() => {
+        const diff = TARGET_DATE - Date.now();
+        return Math.max(0, Math.ceil(diff / (1000*60*60*24)));
+      }, [state.btcHot, state.btcCold]);
+
+      const totalBtc = state.btcHot + state.btcCold;
+      const progress = clamp((totalBtc / GOAL_BTC) * 100, 0, 100);
+
+      const executeWeekly = () => {
+        const fng = clamp(Number(ui.fngIndex || 0), 0, 100);
+        const btcPrice = Number(ui.btcPrice || 0);
+
+        if(btcPrice <= 0){
+          setModal({ title:"輸入錯誤", body:"BTC 價格必須 > 0" });
+          return;
+        }
+
+        let action = "";
+        let usdtSpent = 0;
+        let usdtSaved = 0;
+        let reserveUsed = 0;
+        let greed = state.consecutiveGreedWeeks;
+
+        if(fng < 20){
+          action = "極度恐慌：3份買進 + 動用預備金 25%";
+          usdtSpent = 180;
+          if(state.usdtReserve > 0){
+            reserveUsed = Math.floor(state.usdtReserve * 0.25);
+            usdtSpent += reserveUsed;
+          }
+          greed = 0;
+        }else if(fng <= 40){
+          action = "恐懼：2份買 / 1份存";
+          usdtSpent = 120;
+          usdtSaved = 60;
+          greed = 0;
+        }else if(fng <= 75){
+          action = "中性：1份買 / 2份存";
+          usdtSpent = 60;
+          usdtSaved = 120;
+          greed = 0;
+        }else{
+          if(greed >= 8){
+            action = "長牛保險：1份買 / 2份存";
+            usdtSpent = 60;
+            usdtSaved = 120;
+            greed += 1;
+          }else{
+            action = "貪婪：0買 / 3份全存";
+            usdtSpent = 0;
+            usdtSaved = 180;
+            greed += 1;
+          }
+        }
+
+        const btcBought = usdtSpent > 0 ? (usdtSpent / btcPrice) : 0;
+
+        const next = {
+          ...state,
+          btcHot: state.btcHot + btcBought,
+          usdtReserve: state.usdtReserve + usdtSaved - reserveUsed,
+          consecutiveGreedWeeks: greed
+        };
+        setState(next);
+
+        addLog(`週報：${action}`, usdtSpent > 0 ? "success" : "warning");
+        if(btcBought > 0) addLog(`買入：${btcBought.toFixed(6)} BTC @ ${btcPrice}`, "success");
+
+        // 簡單提醒
+        if(ui.ethBtcRatio >= 0.06 && next.eth >= 10) addLog(`警報：ETH/BTC=${ui.ethBtcRatio}（達 0.06）`, "alert");
+        if(ui.adaBtcRatio >= 0.000010 && next.ada >= 40000) addLog(`警報：ADA/BTC=${ui.adaBtcRatio}（達 0.000010）`, "alert");
+
+        setModal({
+          title:"執行報告",
+          body: `
+${action}
+
+投入：${usdtSpent} U
+存入預備：${usdtSaved} U
+動用預備：${reserveUsed} U
+獲得：${btcBought.toFixed(6)} BTC
+
+目前總持有：${(next.btcHot + next.btcCold).toFixed(4)} BTC
+          `.trim()
+        });
+      };
+
+      const moveCold = () => {
+        if(state.btcHot < 0.05){
+          setModal({ title:"指令拒絕", body:"未達 0.05 BTC 門檻，請節省手續費。" });
+          return;
+        }
+        const amount = state.btcHot;
+        const next = { ...state, btcHot: 0, btcCold: state.btcCold + amount };
+        setState(next);
+        addLog(`提領 ${amount.toFixed(6)} BTC 至冷錢包`, "secure");
+        setModal({ title:"資產轉移", body:`成功將 ${amount.toFixed(6)} BTC 移入冷錢包。` });
+      };
+
+      const Chip = ({active, children, onClick}) => (
+        React.createElement("button", {
+          onClick,
+          className: "px-3 py-2 rounded-lg text-sm font-semibold " + (active ? "bg-emerald-600 text-white" : "bg-slate-800 text-slate-300")
+        }, children)
+      );
+
+      // ✅ 非受控輸入框：defaultValue + onInput 存 draftRef，onBlur 才套用到 ui
+      const Field = ({label, name, placeholder, inputMode="decimal"}) => (
+        React.createElement("div", { className:"space-y-1" },
+          React.createElement("div", { className:"text-xs text-slate-400" }, label),
+          React.createElement("input", {
+            defaultValue: draftRef.current[name],
+            placeholder,
+            inputMode,
+            className:"w-full bg-slate-900 border border-slate-700 rounded-xl px-4 py-3 text-lg font-mono focus:outline-none focus:ring-2 focus:ring-emerald-500",
+            onInput: (e) => { draftRef.current[name] = e.target.value; },
+            onBlur: () => {
+              const raw = draftRef.current[name];
+              const n = parseNum(raw, NaN);
+              if(Number.isFinite(n)){
+                setUi(prev => ({ ...prev, [name]: n }));
+              }
+            },
+            autoCorrect:"off",
+            autoCapitalize:"off",
+            spellCheck:false
+          })
         )
-      ),
+      );
 
-      React.createElement("div",{className:"card p-4"},
-        React.createElement(NumberField,"BTC 價格 (USDT)","btcPrice"),
-        React.createElement(FngInput,null),
-        React.createElement("button",{onClick:executeWeekly,className:"mt-4 w-full bg-emerald-600 py-4 rounded-xl font-bold"},"執行每週決策")
-      ),
+      // ✅ 恐貪指數：改成自己輸入 0-100（onBlur 套用）
+      const FngInput = () => (
+        React.createElement("div", { className:"space-y-1" },
+          React.createElement("div", { className:"flex justify-between items-center" },
+            React.createElement("div", { className:"text-xs text-slate-400" }, "恐懼與貪婪指數 (0-100)"),
+            React.createElement("div", { className:"text-sm font-mono text-emerald-300" }, String(ui.fngIndex))
+          ),
+          React.createElement("input", {
+            defaultValue: draftRef.current.fngIndex,
+            inputMode:"numeric",
+            className:"w-full bg-slate-900 border border-slate-700 rounded-xl px-4 py-3 text-lg font-mono focus:outline-none focus:ring-2 focus:ring-emerald-500",
+            placeholder:"例如 50",
+            onInput:(e)=>{ draftRef.current.fngIndex = e.target.value; },
+            onBlur:()=>{
+              let n = Number(draftRef.current.fngIndex);
+              if(!Number.isFinite(n)) n = ui.fngIndex;
+              n = clamp(Math.round(n), 0, 100);
+              draftRef.current.fngIndex = String(n);
+              setUi(prev => ({ ...prev, fngIndex: n }));
+            },
+            autoCorrect:"off",
+            autoCapitalize:"off",
+            spellCheck:false
+          })
+        )
+      );
 
-      React.createElement("div",{className:"card p-4"},
-        React.createElement("div",{className:"text-xs font-mono"},"LOG"),
-        state.logs.slice(0,8).map(l=>
-          React.createElement("div",{key:l.id,className:"text-sm font-mono"},
-            `[${l.date}] ${l.msg}`
+      return React.createElement("div", { className:"min-h-screen safe-b" },
+
+        // Top
+        React.createElement("div", { className:"sticky top-0 z-10 bg-slate-950/90 backdrop-blur border-b border-slate-800 px-4 py-3" },
+          React.createElement("div", { className:"flex items-center justify-between text-xs text-slate-400 font-mono mb-2" },
+            React.createElement("span", null, `LV.${Math.floor(totalBtc*10)} 守護者`),
+            React.createElement("span", null, `${fmt(totalBtc,4)} / ${GOAL_BTC} BTC`)
+          ),
+          React.createElement("div", { className:"w-full h-3 bg-slate-800 rounded-full overflow-hidden" },
+            React.createElement("div", {
+              className:"h-full bg-gradient-to-r from-emerald-600 to-green-400 transition-all",
+              style:{ width: progress + "%" }
+            })
+          ),
+          React.createElement("div", { className:"text-[10px] text-right text-slate-500 mt-1" }, `剩餘 ${daysLeft} 天`)
+        ),
+
+        // Content
+        React.createElement("div", { className:"p-4 space-y-4 pb-24 max-w-xl mx-auto" },
+
+          // Tabs
+          React.createElement("div", { className:"flex gap-2" },
+            React.createElement(Chip, { active: tab==="home", onClick:()=>setTab("home") }, "HOME 行動"),
+            React.createElement(Chip, { active: tab==="alert", onClick:()=>setTab("alert") }, "ALERT 戰略"),
+            React.createElement(Chip, { active: tab==="sop", onClick:()=>setTab("sop") }, "SOP 憲法")
+          ),
+
+          // Cards
+          React.createElement("div", { className:"grid grid-cols-2 gap-3" },
+            React.createElement("div", { className:"bg-slate-800 rounded-2xl p-4 border border-slate-700" },
+              React.createElement("div", { className:"text-xs text-slate-400" }, "熱錢包 (BTC)"),
+              React.createElement("div", { className:"text-2xl font-mono font-bold mt-1" }, fmt(state.btcHot,4)),
+              React.createElement("button", {
+                onClick: moveCold,
+                className:"mt-3 w-full bg-slate-700 hover:bg-slate-600 rounded-xl py-2 text-sm font-bold"
+              }, "提領到冷錢包 (0.05門檻)")
+            ),
+            React.createElement("div", { className:"bg-slate-800 rounded-2xl p-4 border border-slate-700" },
+              React.createElement("div", { className:"text-xs text-slate-400" }, "冷錢包 (BTC)"),
+              React.createElement("div", { className:"text-2xl font-mono font-bold mt-1" }, fmt(state.btcCold,4)),
+              React.createElement("div", { className:"text-[11px] text-slate-500 mt-2" }, "絕對防禦")
+            )
+          ),
+
+          React.createElement("div", { className:"bg-slate-800 rounded-2xl p-4 border border-slate-700" },
+            React.createElement("div", { className:"text-xs text-slate-400" }, "預備金 (USDT)"),
+            React.createElement("div", { className:"text-2xl font-mono font-bold mt-1" }, "$" + Number(state.usdtReserve||0).toLocaleString())
+          ),
+
+          // Home
+          tab==="home" && React.createElement("div", { className:"bg-slate-800 rounded-2xl p-5 border border-slate-700 space-y-4" },
+            React.createElement("div", { className:"text-lg font-extrabold text-emerald-400" }, "⚡ 每週任務"),
+            React.createElement(Field, { label:"本週 BTC 價格 (USDT)", name:"btcPrice", inputMode:"numeric" }),
+            React.createElement(FngInput, null),
+            React.createElement("div", { className:"grid grid-cols-2 gap-3" },
+              React.createElement(Field, { label:"ETH/BTC 匯率（選填）", name:"ethBtcRatio", inputMode:"decimal" }),
+              React.createElement(Field, { label:"ADA/BTC 匯率（選填）", name:"adaBtcRatio", inputMode:"decimal" })
+            ),
+            React.createElement("button", {
+              onClick: executeWeekly,
+              className:"w-full bg-emerald-600 hover:bg-emerald-700 rounded-2xl py-4 text-lg font-black"
+            }, "執行每週決策 (EXECUTE)")
+          ),
+
+          // Alert
+          tab==="alert" && React.createElement("div", { className:"bg-slate-800 rounded-2xl p-5 border border-slate-700 space-y-2" },
+            React.createElement("div", { className:"text-lg font-extrabold text-fuchsia-300" }, "⚠️ 戰略提醒"),
+            React.createElement("div", { className:"text-sm text-slate-300" },
+              `ETH: ${fmt(state.eth,2)}｜ADA: ${Number(state.ada||0).toLocaleString()}`
+            ),
+            React.createElement("div", { className:"text-xs text-slate-500" }, "（達標會寫入 LOG）")
+          ),
+
+          // SOP
+          tab==="sop" && React.createElement("div", { className:"bg-slate-800 rounded-2xl p-5 border border-slate-700 space-y-3" },
+            React.createElement("div", { className:"text-lg font-extrabold text-yellow-300" }, "📜 憲法 (SOP)"),
+            React.createElement("ul", { className:"text-sm text-slate-300 list-disc pl-5 space-y-2" },
+              React.createElement("li", null, "恐慌(<20) 全力買進；貪婪(>75) 轉存預備金。"),
+              React.createElement("li", null, "交易所累積滿 0.05 BTC → 必須提領到冷錢包。"),
+              React.createElement("li", null, "不預測市場，只執行規則。")
+            )
+          ),
+
+          // Logs
+          React.createElement("div", { className:"bg-slate-950 rounded-2xl p-4 border border-slate-800" },
+            React.createElement("div", { className:"text-xs text-slate-500 font-mono mb-2" }, "> SYSTEM LOGS"),
+            state.logs.length === 0
+              ? React.createElement("div", { className:"text-slate-600 text-sm" }, "等待指令…")
+              : state.logs.slice(0, 12).map(l =>
+                  React.createElement("div", { key:l.id, className:"text-sm font-mono border-b border-slate-900 py-2" },
+                    React.createElement("span", { className:"text-slate-500" }, `[${l.date}] `),
+                    React.createElement("span", {
+                      className:
+                        l.type==="alert" ? "text-red-300 font-bold" :
+                        l.type==="success" ? "text-emerald-300" :
+                        l.type==="warning" ? "text-yellow-300" :
+                        l.type==="secure" ? "text-sky-300" : "text-slate-300"
+                    }, l.msg)
+                  )
+                )
+          )
+        ),
+
+        // Modal
+        modal && React.createElement("div", { className:"fixed inset-0 z-50 bg-black/70 flex items-center justify-center p-4" },
+          React.createElement("div", { className:"w-full max-w-md bg-slate-900 border border-slate-700 rounded-2xl p-5" },
+            React.createElement("div", { className:"text-lg font-black mb-3" }, modal.title),
+            React.createElement("pre", { className:"text-sm text-slate-200 whitespace-pre-wrap leading-relaxed" }, modal.body),
+            React.createElement("button", {
+              onClick:()=>setModal(null),
+              className:"mt-4 w-full bg-slate-700 hover:bg-slate-600 rounded-xl py-3 font-bold"
+            }, "確認")
           )
         )
-      )
-    ),
+      );
+    }
 
-    modal && React.createElement("div",{className:"fixed inset-0 bg-black/70 flex items-center justify-center"},
-      React.createElement("div",{className:"card p-6"},
-        React.createElement("div",{className:"mb-4"},modal),
-        React.createElement("button",{onClick:()=>setModal(null),className:"w-full bg-white/10 py-2 rounded-xl"},"確認")
-      )
-    )
-  );
-}
-
-ReactDOM.createRoot(document.getElementById("root")).render(React.createElement(App));
-</script>
+    const root = ReactDOM.createRoot(document.getElementById("root"));
+    root.render(React.createElement(App));
+  </script>
 </body>
 </html>

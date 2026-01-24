@@ -18,25 +18,29 @@
 </head>
 
 <body class="text-slate-100">
-  <div id="root"></div>
+<div id="root"></div>
 
 <script>
 const { useEffect, useMemo, useRef, useState } = React;
 
-/* ===== Constants (align with your constitution) ===== */
+/* ========= Constants ========= */
 const GOAL_BTC = 3.0;
 const TARGET_DATE = new Date("2030-12-31T00:00:00+08:00").getTime();
-const SAVE_KEY = "p2030_full_ui_autofill_200w_v1";
+const SAVE_KEY = "p2030_full_app_v95001";
 
+// 月度份額池：每月180U = 3份，每份60U
 const PART = 60;
 const MONTH_PARTS = 3;
 
+// 長牛保險
 const GREED_THRESHOLD = 75;
 const GREED_WEEKS_FOR_INSURANCE = 8;
 
+// 黑天鵝
 const BLACK_SWAN_WEEKS = 4;
 const BLACK_SWAN_STOP_REBOUND = 15;
 
+// 轉換門檻
 const ETH_STAGE1 = 0.060;
 const ETH_STAGE2 = 0.065;
 const ETH_STAGE3 = 0.075;
@@ -44,37 +48,38 @@ const ETH_STAGE3 = 0.075;
 const ADA_STAGE1 = 0.000010;
 const ADA_STAGE2 = 0.000013;
 
+// ETH→USDT 掛單回接 + 90天最晚回家
 const BUYBACK_DROP_STAGE1 = 15;
 const BUYBACK_DROP_STAGE2 = 20;
 const BUYBACK_DEADLINE_DAYS = 90;
 
-/* ===== Helpers ===== */
-function todayMMDD(){
-  return new Date().toLocaleDateString('zh-TW', {month:'2-digit', day:'2-digit'});
-}
+/* ========= Helpers ========= */
 function clamp(v, min, max){ return Math.min(max, Math.max(min, v)); }
 function parseNum(s, fallback = NaN){
   const n = Number(String(s ?? "").replace(/,/g,"").trim());
   return Number.isFinite(n) ? n : fallback;
 }
 function fmt(n, d=4){ return Number(n||0).toFixed(d); }
-function isoPlusDays(days){
-  const d = new Date();
-  d.setDate(d.getDate() + days);
-  return d.toISOString();
-}
 function monthKeyNow(){
   const d = new Date();
   const y = d.getFullYear();
   const m = String(d.getMonth()+1).padStart(2,'0');
   return `${y}-${m}`;
 }
+function todayMMDD(){
+  return new Date().toLocaleDateString('zh-TW', {month:'2-digit', day:'2-digit'});
+}
+function isoPlusDays(days){
+  const d = new Date();
+  d.setDate(d.getDate() + days);
+  return d.toISOString();
+}
 function daysLeftToISO(iso){
   const t = new Date(iso).getTime() - Date.now();
   return Math.max(0, Math.ceil(t / (1000*60*60*24)));
 }
 
-/* ===== Initial State ===== */
+/* ========= Initial State ========= */
 function initialStateNow(){
   return {
     btcHot: 0.0,
@@ -98,6 +103,7 @@ function initialStateNow(){
       reason: null
     },
 
+    // {id, createdAtISO, deadlineISO, usdtAmount, refBtcPrice, dropPct, targetPrice, status, btcReceived, closedAtISO, closedReason}
     pendingOrders: []
   };
 }
@@ -107,7 +113,7 @@ function App(){
   const [tab, setTab] = useState("home");
   const [modal, setModal] = useState(null);
 
-  // iPhone stable input (uncontrolled + onBlur apply)
+  // iPhone: 非受控輸入（避免每輸入一字就 re-render 收鍵盤）
   const draftRef = useRef({
     btcPrice: "90000",
     fngIndex: "50",
@@ -116,7 +122,7 @@ function App(){
     athDrawdownPct: "0",
     below200w: "0",
     reboundPct: "0",
-    extraReserveAdd: "0"
+    extraReserveAdd: "0",
   });
 
   const [ui, setUi] = useState({
@@ -130,7 +136,7 @@ function App(){
     ma200w: 0
   });
 
-  // modal input refs for ETH stage 1/2 (avoid iOS prompt issues)
+  // ETH 一/二階 modal 輸入（避免 iOS prompt 擋第二次）
   const ethStageBtcRef = useRef("");
   const ethStageUsdtRef = useRef("");
 
@@ -175,15 +181,18 @@ function App(){
     return btcUSD + ethUSD + adaUSD + stableTotal;
   }, [totalBtc, ui.btcPrice, ui.ethBtcRatio, ui.adaBtcRatio, state.eth, state.ada, stableTotal]);
 
-  const stablePct = useMemo(() => {
-    if(!(portfolioUsdApprox > 0)) return 0;
-    return stableTotal / portfolioUsdApprox * 100;
-  }, [stableTotal, portfolioUsdApprox]);
+  const stablePct = useMemo(() => (portfolioUsdApprox>0 ? (stableTotal/portfolioUsdApprox*100) : 0), [stableTotal, portfolioUsdApprox]);
 
-  /* ===== Autofill: BTC/FNG + ETH/BTC/ADA/BTC + 200W MA + below200w ===== */
+  /* ===== Small DOM helpers ===== */
+  const setInputValue = (id, val) => {
+    const el = document.getElementById(id);
+    if (el) el.value = String(val);
+  };
+
+  /* ===== Autofill: BTC/FNG + ETH/BTC + ADA/BTC + 200W MA + below200w ===== */
   const autofillFromApis = async () => {
-    const CACHE_KEY = "p2030_autofill_cache_v6";
-    const MA_KEY = "p2030_ma200w_cache_v2";
+    const CACHE_KEY = "p2030_autofill_cache_v95001";
+    const MA_KEY = "p2030_ma200w_cache_v95001";
     const now = Date.now();
 
     const readCache = (key) => {
@@ -199,50 +208,29 @@ function App(){
       try { localStorage.setItem(key, JSON.stringify({ ts: now, ...payload })); } catch {}
     };
 
-    const setInputValue = (id, val) => {
-      const el = document.getElementById(id);
-      if (el) el.value = String(val);
-    };
-
     const apply = (p) => {
       // p: { btcUsd, fng, ethBtc, adaBtc, ma200w, below200w }
-      if (p.btcUsd > 0) {
-        draftRef.current.btcPrice = String(p.btcUsd);
-        setInputValue("btcPrice", p.btcUsd);
-      }
-      if (Number.isFinite(p.fng)) {
-        const f = clamp(p.fng, 0, 100);
-        draftRef.current.fngIndex = String(f);
-        setInputValue("fngIndex", f);
-      }
-      if (p.ethBtc > 0) {
-        draftRef.current.ethBtcRatio = String(p.ethBtc);
-        setInputValue("ethBtcRatio", p.ethBtc);
-      }
-      if (p.adaBtc > 0) {
-        draftRef.current.adaBtcRatio = String(p.adaBtc);
-        setInputValue("adaBtcRatio", p.adaBtc);
-      }
-      if (typeof p.below200w === "number") {
-        draftRef.current.below200w = String(p.below200w);
-      }
+      if (p.btcUsd > 0) { draftRef.current.btcPrice = String(p.btcUsd); setInputValue("btcPrice", p.btcUsd); }
+      if (Number.isFinite(p.fng)) { const f = clamp(p.fng,0,100); draftRef.current.fngIndex = String(f); setInputValue("fngIndex", f); }
+      if (p.ethBtc > 0) { draftRef.current.ethBtcRatio = String(p.ethBtc); setInputValue("ethBtcRatio", p.ethBtc); }
+      if (p.adaBtc > 0) { draftRef.current.adaBtcRatio = String(p.adaBtc); setInputValue("adaBtcRatio", p.adaBtc); }
 
       setUi(prev => ({
         ...prev,
-        ...(p.btcUsd > 0 ? { btcPrice: p.btcUsd } : {}),
-        ...(Number.isFinite(p.fng) ? { fngIndex: clamp(p.fng, 0, 100) } : {}),
-        ...(p.ethBtc > 0 ? { ethBtcRatio: p.ethBtc } : {}),
-        ...(p.adaBtc > 0 ? { adaBtcRatio: p.adaBtc } : {}),
-        ...(Number.isFinite(p.ma200w) && p.ma200w > 0 ? { ma200w: p.ma200w } : {}),
-        ...(typeof p.below200w === "number" ? { below200w: p.below200w } : {})
+        ...(p.btcUsd>0 ? { btcPrice: p.btcUsd } : {}),
+        ...(Number.isFinite(p.fng) ? { fngIndex: clamp(p.fng,0,100) } : {}),
+        ...(p.ethBtc>0 ? { ethBtcRatio: p.ethBtc } : {}),
+        ...(p.adaBtc>0 ? { adaBtcRatio: p.adaBtc } : {}),
+        ...(Number.isFinite(p.ma200w) && p.ma200w>0 ? { ma200w: p.ma200w } : {}),
+        ...(typeof p.below200w==="number" ? { below200w: p.below200w } : {})
       }));
     };
 
-    // 60s cache for main autofill
+    // 60秒快取
     const cache = readCache(CACHE_KEY);
     if (cache && (now - cache.ts) < 60_000) {
       apply(cache);
-      addLog(`自動帶入（快取）：BTC≈${cache.btcUsd || "?"}｜FNG=${cache.fng ?? "?"}`, "system");
+      addLog(`自動帶入（快取）：BTC≈${cache.btcUsd||"?"}｜FNG=${cache.fng??"?"}`, "system");
       return;
     }
 
@@ -251,16 +239,16 @@ function App(){
       const ctrl = new AbortController();
       const t = setTimeout(() => ctrl.abort(), timeoutMs);
       try {
-        const res = await fetch(url, { cache: "no-store", signal: ctrl.signal });
+        const res = await fetch(url, { cache:"no-store", signal: ctrl.signal });
         if (!res.ok) throw new Error(`HTTP ${res.status}`);
         return await res.json();
       } finally { clearTimeout(t); }
     };
-    const withRetry = async (fn, tries = 3) => {
+    const withRetry = async (fn, tries=3) => {
       let lastErr = null;
       for (let i=0;i<tries;i++){
         try { return await fn(); }
-        catch(e){ lastErr = e; await sleep([500,1200,2500][i] ?? 2500); }
+        catch(e){ lastErr=e; await sleep([500,1200,2500][i] ?? 2500); }
       }
       throw lastErr;
     };
@@ -268,30 +256,28 @@ function App(){
     try{
       addLog("自動抓取中…（BTC/FNG/匯率/200W）", "system");
 
-      // 1) FNG
+      // FNG
       const fngJson = await withRetry(() =>
         fetchJson("https://api.alternative.me/fng/?limit=1&format=json", { timeoutMs: 6500 })
       );
       const fng = clamp(parseInt(fngJson?.data?.[0]?.value ?? "0", 10), 0, 100);
 
-      // 2) Prices BTC/ETH/ADA in one call
+      // BTC/ETH/ADA USD（一次抓完）
       const prices = await withRetry(() =>
         fetchJson("https://api.coingecko.com/api/v3/simple/price?ids=bitcoin,ethereum,cardano&vs_currencies=usd", { timeoutMs: 6500 })
       );
       const btcUsd = Math.round(prices?.bitcoin?.usd ?? 0);
       const ethUsd = Number(prices?.ethereum?.usd ?? 0);
       const adaUsd = Number(prices?.cardano?.usd ?? 0);
-
       if(!(btcUsd > 0)) throw new Error("BTC price invalid");
 
-      // 3) Ratios
-      const ethBtc = (btcUsd > 0 && ethUsd > 0) ? (ethUsd / btcUsd) : 0;
-      const adaBtc = (btcUsd > 0 && adaUsd > 0) ? (adaUsd / btcUsd) : 0;
+      const ethBtc = (btcUsd>0 && ethUsd>0) ? (ethUsd/btcUsd) : 0;
+      const adaBtc = (btcUsd>0 && adaUsd>0) ? (adaUsd/btcUsd) : 0;
 
-      // 4) 200W MA (approx): average of 1400 daily prices; cache 6 hours
+      // 200W MA：抓 1400 天日資料平均（近似），快取 6 小時
       let ma200w = ui.ma200w || 0;
       const maCache = readCache(MA_KEY);
-      if (maCache && (now - maCache.ts) < 6 * 60 * 60 * 1000 && maCache.ma200w > 0) {
+      if (maCache && (now - maCache.ts) < 6*60*60*1000 && maCache.ma200w > 0) {
         ma200w = maCache.ma200w;
       } else {
         try{
@@ -307,20 +293,17 @@ function App(){
               writeCache(MA_KEY, { ma200w: avg });
             }
           }
-        }catch(_e){
-          // ignore MA fetch failure
-        }
+        } catch(_e) { /* ignore */ }
       }
 
-      const below200w = (btcUsd > 0 && ma200w > 0 && btcUsd < ma200w) ? 1 : 0;
+      const below200w = (btcUsd>0 && ma200w>0 && btcUsd < ma200w) ? 1 : 0;
 
       const payload = { btcUsd, fng, ethBtc, adaBtc, ma200w, below200w };
       writeCache(CACHE_KEY, payload);
       apply(payload);
 
       addLog(`自動帶入成功：BTC≈${btcUsd}｜FNG=${fng}｜ETH/BTC≈${ethBtc?ethBtc.toFixed(5):"?"}｜ADA/BTC≈${adaBtc?adaBtc.toFixed(8):"?"}`, "success");
-      if (ma200w > 0) addLog(`200W≈${Math.round(ma200w)}｜跌破200W=${below200w ? "ON" : "OFF"}`, "system");
-
+      if (ma200w>0) addLog(`200W≈${Math.round(ma200w)}｜跌破200W=${below200w?"ON":"OFF"}`, "system");
     }catch(e){
       console.error(e);
       addLog("自動抓取失敗：請稍後重試或手動輸入", "warning");
@@ -328,8 +311,49 @@ function App(){
     }
   };
 
-  // Auto-fetch once on open (optional)
+  // App 開啟後自動抓一次（你不想可刪這行）
   useEffect(() => { autofillFromApis(); }, []); // eslint-disable-line
+
+  /* ===== UI Components ===== */
+  const Chip = ({active, children, onClick}) => (
+    React.createElement("button", {
+      onClick,
+      className: "px-3 py-2 rounded-xl text-sm font-semibold " + (active ? "bg-emerald-600 text-white" : "bg-slate-800 text-slate-300")
+    }, children)
+  );
+
+  const Field = ({label, name, id, inputMode="decimal", placeholder=""}) => (
+    React.createElement("div", { className:"space-y-1" },
+      React.createElement("div", { className:"text-xs text-slate-400" }, label),
+      React.createElement("input", {
+        id: id || undefined,
+        defaultValue: draftRef.current[name],
+        inputMode,
+        placeholder,
+        className:"w-full bg-slate-900 border border-slate-700 rounded-2xl px-4 py-3 text-lg mono focus:outline-none focus:ring-2 focus:ring-emerald-500",
+        onInput: (e)=> { draftRef.current[name] = e.target.value; },
+        onBlur: ()=> {
+          const v = parseNum(draftRef.current[name], NaN);
+          if(Number.isFinite(v)) setUi(prev => ({ ...prev, [name]: v }));
+        },
+        autoCorrect:"off", autoCapitalize:"off", spellCheck:false
+      })
+    )
+  );
+
+  const Toggle01 = ({label, name}) => (
+    React.createElement("div", { className:"flex items-center justify-between bg-slate-900 border border-slate-700 rounded-2xl px-4 py-3" },
+      React.createElement("div", { className:"text-sm text-slate-200" }, label),
+      React.createElement("button", {
+        className: "px-3 py-2 rounded-xl text-xs font-bold " + (Number(ui[name]||0)===1 ? "bg-emerald-600" : "bg-slate-700"),
+        onClick: ()=> {
+          const next = Number(ui[name]||0)===1 ? 0 : 1;
+          setUi(prev => ({ ...prev, [name]: next }));
+          draftRef.current[name] = String(next);
+        }
+      }, Number(ui[name]||0)===1 ? "ON" : "OFF")
+    )
+  );
 
   /* ===== Backup ===== */
   const copyToClipboard = async (text) => {
@@ -350,9 +374,7 @@ function App(){
       const ok = document.execCommand("copy");
       document.body.removeChild(ta);
       return ok;
-    }catch(e){
-      return false;
-    }
+    }catch(e){ return false; }
   };
 
   const exportBackup = () => {
@@ -368,11 +390,10 @@ function App(){
       if(obj.ui) setUi(prev => ({ ...prev, ...obj.ui }));
       if(obj.draft) draftRef.current = { ...draftRef.current, ...obj.draft };
 
-      const setVal = (id, v) => { const el = document.getElementById(id); if(el) el.value = String(v); };
-      if(draftRef.current.btcPrice) setVal("btcPrice", draftRef.current.btcPrice);
-      if(draftRef.current.fngIndex) setVal("fngIndex", draftRef.current.fngIndex);
-      if(draftRef.current.ethBtcRatio) setVal("ethBtcRatio", draftRef.current.ethBtcRatio);
-      if(draftRef.current.adaBtcRatio) setVal("adaBtcRatio", draftRef.current.adaBtcRatio);
+      if(draftRef.current.btcPrice) setInputValue("btcPrice", draftRef.current.btcPrice);
+      if(draftRef.current.fngIndex) setInputValue("fngIndex", draftRef.current.fngIndex);
+      if(draftRef.current.ethBtcRatio) setInputValue("ethBtcRatio", draftRef.current.ethBtcRatio);
+      if(draftRef.current.adaBtcRatio) setInputValue("adaBtcRatio", draftRef.current.adaBtcRatio);
 
       addLog("已匯入備份並覆蓋目前資料。", "success");
       setModal({ mode:"info", title:"匯入成功", body:"備份已匯入。" });
@@ -381,7 +402,6 @@ function App(){
     }
   };
 
-  /* ===== Reserve / Reset / Cold wallet ===== */
   const addExtraReserve = () => {
     const add = Math.max(0, Math.floor(parseNum(draftRef.current.extraReserveAdd, 0)));
     if(!(add > 0)){
@@ -399,23 +419,16 @@ function App(){
     const init = initialStateNow();
     setState({ ...init, logs: [] });
     setUi({
-      btcPrice: 90000,
-      fngIndex: 50,
-      ethBtcRatio: 0.050,
-      adaBtcRatio: 0.000008,
-      athDrawdownPct: 0,
-      below200w: 0,
-      reboundPct: 0,
-      ma200w: 0
+      btcPrice: 90000, fngIndex: 50,
+      ethBtcRatio: 0.050, adaBtcRatio: 0.000008,
+      athDrawdownPct: 0, below200w: 0, reboundPct: 0, ma200w: 0
     });
     draftRef.current = {
       btcPrice:"90000", fngIndex:"50", ethBtcRatio:"0.050", adaBtcRatio:"0.000008",
       athDrawdownPct:"0", below200w:"0", reboundPct:"0", extraReserveAdd:"0"
     };
     setModal({ mode:"info", title:"已重置", body:"所有資料已清空，並回到初始值。" });
-  };
-
-  const moveCold = () => {
+  };  const moveCold = () => {
     if(state.btcHot < 0.05){
       setModal({ mode:"info", title:"指令拒絕", body:"未達 0.05 BTC 門檻，請節省手續費。" });
       return;
@@ -488,6 +501,7 @@ function App(){
       setModal({ mode:"info", title:"缺少資料", body:"請先在 HOME 輸入 BTC 價格。" });
       return;
     }
+
     const nowISO = new Date().toISOString();
     let btcGained = 0;
 
@@ -539,10 +553,11 @@ function App(){
     setModal({ mode:"info", title:"完成", body:`已完成 ETH 第${stage}階：一半換 BTC + 一半換 USDT 並建立掛單。` });
   };
 
-  /* ===== Weekly Execute (single) ===== */
+  /* ===== Weekly Execute ===== */
   const executeWeekly = () => {
     const btcPrice = Number(ui.btcPrice || 0);
     const fng = clamp(Number(ui.fngIndex || 0), 0, 100);
+
     if(!(btcPrice > 0)){
       setModal({ mode:"info", title:"輸入錯誤", body:"BTC 價格必須 > 0" });
       return;
@@ -551,7 +566,7 @@ function App(){
     const nowMonthKey = monthKeyNow();
     let monthRefilled = false;
 
-    // Monthly refill
+    // 1) 換月補份額
     let monthParts = state.monthPartsRemaining;
     let lastMonthKey = state.lastMonthKey;
     if(lastMonthKey !== nowMonthKey){
@@ -560,7 +575,7 @@ function App(){
       monthRefilled = true;
     }
 
-    // 90-day forced buyback
+    // 2) 90天到期強制回家
     const nowISO = new Date().toISOString();
     let forcedBtc = 0;
     const updatedOrders = state.pendingOrders.map(o => {
@@ -573,7 +588,7 @@ function App(){
       return o;
     });
 
-    // Greed weeks & market bucket
+    // 3) 判斷 A/B/C/D & 長牛週數
     let greedWeeks = state.consecutiveGreedWeeks;
     let bucket = "";
     if(fng < 20){ bucket="A"; greedWeeks = 0; }
@@ -581,7 +596,7 @@ function App(){
     else if(fng <= 75){ bucket="C"; greedWeeks = 0; }
     else { bucket="D"; greedWeeks += 1; }
 
-    // Decide parts usage
+    // 4) 決定本月要用幾份
     let spendParts = 0;
     let saveParts = 0;
     let action = "";
@@ -610,7 +625,7 @@ function App(){
     const usdtSpent = spendParts * PART;
     const usdtSaved = saveParts * PART;
 
-    // Black swan trigger: fng/athDD/below200w
+    // 5) 黑天鵝觸發：FNG<20 or ATH>=30 or below200w
     const athDD = clamp(Number(ui.athDrawdownPct || 0), 0, 100);
     const below200w = Number(ui.below200w || 0) === 1;
     const blackSwanTriggered = (fng < 20) || (athDD >= 30) || below200w;
@@ -624,8 +639,10 @@ function App(){
       addLog(`黑天鵝停止：反彈 ${rebound}% > ${BLACK_SWAN_STOP_REBOUND}%`, "warning");
     }
 
+    // 先把本次存入預備金加進去
     let reserveAfterSave = state.usdtReserve + usdtSaved;
 
+    // 啟動黑天鵝：把當下預備金分4週
     if(!blackSwan.active && blackSwanTriggered){
       const reserveNow = reserveAfterSave;
       if(reserveNow > 0){
@@ -636,6 +653,7 @@ function App(){
       }
     }
 
+    // 黑天鵝本週買入
     if(blackSwan.active && blackSwan.remainingWeeks > 0){
       const spend = Math.max(0, Math.min(reserveAfterSave, blackSwan.weeklyBudget));
       if(spend > 0){
@@ -650,10 +668,11 @@ function App(){
       }
     }
 
-    // Buy BTC this week
+    // 6) 本週買 BTC（DCA + 黑天鵝）+ 強制回家
     const totalSpent = usdtSpent + blackSwanSpent;
     const btcBought = totalSpent > 0 ? (totalSpent / btcPrice) : 0;
 
+    // 7) 扣份額
     const usedParts = spendParts + saveParts;
     const newMonthParts = Math.max(0, monthParts - usedParts);
 
@@ -675,7 +694,7 @@ function App(){
     if(totalSpent > 0) addLog(`本週投入：${Math.floor(totalSpent)}U → 買入 ${btcBought.toFixed(6)} BTC`, "success");
     if(forcedBtc > 0) addLog(`90天回家：到期強制買回 +${forcedBtc.toFixed(6)} BTC`, "alert");
 
-    const hit = updatedOrders.filter(o => o.status==="open" && (ui.btcPrice || 0) <= (o.targetPrice || -1));
+    const hit = updatedOrders.filter(o => o.status==="open" && (ui.btcPrice||0) <= (o.targetPrice||-1));
     if(hit.length > 0) addLog(`掛單達標提醒：${hit.length} 筆已達接回價（到掛單頁）`, "alert");
 
     setModal({
@@ -722,24 +741,19 @@ DCA 投入：${usdtSpent}U｜存入預備：${usdtSaved}U
           }
         })
       ),
-
       React.createElement("button", { onClick: autofillFromApis, className:"w-full bg-slate-700 hover:bg-slate-600 rounded-2xl py-3 font-bold" },
         "自動抓取：BTC + 恐貪 + ETH/ADA 匯率 + 200W"),
-
       React.createElement(Field, { label:"ETH/BTC 匯率（自動帶入）", name:"ethBtcRatio", id:"ethBtcRatio", inputMode:"decimal" }),
       React.createElement(Field, { label:"ADA/BTC 匯率（自動帶入）", name:"adaBtcRatio", id:"adaBtcRatio", inputMode:"decimal" }),
-
       React.createElement("div", { className:"bg-slate-900 border border-slate-700 rounded-2xl p-4 space-y-2" },
         React.createElement("div", { className:"text-xs text-slate-400" }, "200W MA（自動估算）"),
         React.createElement("div", { className:"text-sm mono text-slate-200" },
           ui.ma200w > 0 ? `200W≈${Math.round(ui.ma200w)}｜跌破=${ui.below200w ? "ON" : "OFF"}` : "尚未取得（不影響執行）"
         )
       ),
-
       React.createElement(Field, { label:"ATH 回撤 (%)", name:"athDrawdownPct", inputMode:"numeric" }),
       React.createElement(Toggle01, { label:"BTC 跌破 200W MA（自動抓取會更新）", name:"below200w" }),
       React.createElement(Field, { label:"反彈 (%)（>15% 停止黑天鵝）", name:"reboundPct", inputMode:"numeric" }),
-
       React.createElement("button", { onClick: executeWeekly, className:"w-full bg-emerald-600 hover:bg-emerald-700 rounded-2xl py-4 text-lg font-black" }, "執行本週決策")
     )
   );
@@ -747,8 +761,9 @@ DCA 投入：${usdtSpent}U｜存入預備：${usdtSaved}U
   const ConvertPage = () => (
     React.createElement("div", { className:"bg-slate-800 rounded-2xl p-5 border border-slate-700 space-y-4" },
       React.createElement("div", { className:"text-lg font-extrabold text-fuchsia-300" }, "🔄 匯率轉換"),
-      React.createElement("div", { className:"text-sm text-slate-300" }, `ETH: ${fmt(state.eth,2)}｜ADA: ${Math.floor(state.ada).toLocaleString()}`),
-      React.createElement("div", { className:"text-xs text-slate-400" }, `ETH/BTC=${ui.ethBtcRatio}｜ADA/BTC=${ui.adaBtcRatio}`),
+      React.createElement("div", { className:"text-sm text-slate-300" },
+        `ETH: ${fmt(state.eth,2)}｜ADA: ${Math.floor(state.ada).toLocaleString()}｜ETH/BTC=${ui.ethBtcRatio}｜ADA/BTC=${ui.adaBtcRatio}`
+      ),
       React.createElement("div", { className:"grid grid-cols-2 gap-2" },
         React.createElement("button", { className:"bg-slate-700 hover:bg-slate-600 rounded-xl py-3 text-sm font-black", onClick:()=>openEthMixedModal(1) }, "ETH 一階"),
         React.createElement("button", { className:"bg-slate-700 hover:bg-slate-600 rounded-xl py-3 text-sm font-black", onClick:()=>openEthMixedModal(2) }, "ETH 二階")
@@ -762,7 +777,6 @@ DCA 投入：${usdtSpent}U｜存入預備：${usdtSaved}U
           executeConvertDirectToBTC("ETH", 12, parseNum(btc, NaN));
         }
       }, "ETH 三階（全換 BTC）"),
-
       React.createElement("div", { className:"text-xs text-slate-400" }, "ADA 一/二階（直接換 BTC）"),
       React.createElement("div", { className:"grid grid-cols-2 gap-2" },
         React.createElement("button", {
@@ -831,12 +845,6 @@ DCA 投入：${usdtSpent}U｜存入預備：${usdtSaved}U
   );
 
   /* ===== Main Render ===== */
-  const Chip = ({active, children, onClick}) => (
-    React.createElement("button", { onClick,
-      className: "px-3 py-2 rounded-xl text-sm font-semibold " + (active ? "bg-emerald-600 text-white" : "bg-slate-800 text-slate-300")
-    }, children)
-  );
-
   return React.createElement("div", { className:"min-h-screen pb-safe" },
     React.createElement("div", { className:"sticky top-0 z-10 bg-slate-950/90 backdrop-blur border-b border-slate-800 px-4 py-3" },
       React.createElement("div", { className:"flex items-center justify-between text-xs text-slate-400 mono mb-2" },
@@ -860,44 +868,6 @@ DCA 投入：${usdtSpent}U｜存入預備：${usdtSaved}U
         React.createElement(Chip, { active: tab==="tools", onClick:()=>setTab("tools") }, "備份")
       ),
 
-      React.createElement("div", { className:"grid grid-cols-2 gap-3" },
-        React.createElement("div", { className:"bg-slate-800 rounded-2xl p-4 border border-slate-700" },
-          React.createElement("div", { className:"text-xs text-slate-400" }, "熱錢包 (BTC)"),
-          React.createElement("div", { className:"text-2xl mono font-bold mt-1" }, fmt(state.btcHot,4)),
-          React.createElement("button", { onClick: moveCold, className:"mt-3 w-full bg-slate-700 hover:bg-slate-600 rounded-xl py-2 text-sm font-bold" }, "提領到冷錢包")
-        ),
-        React.createElement("div", { className:"bg-slate-800 rounded-2xl p-4 border border-slate-700" },
-          React.createElement("div", { className:"text-xs text-slate-400" }, "冷錢包 (BTC)"),
-          React.createElement("div", { className:"text-2xl mono font-bold mt-1" }, fmt(state.btcCold,4))
-        )
-      ),
-
-      React.createElement("div", { className:"bg-slate-800 rounded-2xl p-4 border border-slate-700 space-y-3" },
-        React.createElement("div", { className:"flex items-start justify-between gap-2" },
-          React.createElement("div", null,
-            React.createElement("div", { className:"text-xs text-slate-400" }, "預備金 (USDT)"),
-            React.createElement("div", { className:"text-2xl mono font-bold mt-1" }, "$" + Math.floor(state.usdtReserve||0).toLocaleString())
-          ),
-          React.createElement("div", { className:"flex gap-2 flex-wrap justify-end" },
-            React.createElement("button", { onClick: exportBackup, className:"text-xs px-3 py-2 rounded-xl bg-slate-700 hover:bg-slate-600 font-bold" }, "匯出"),
-            React.createElement("button", { onClick: ()=> setModal({ mode:"import", title:"匯入備份" }), className:"text-xs px-3 py-2 rounded-xl bg-slate-700 hover:bg-slate-600 font-bold" }, "匯入"),
-            React.createElement("button", { onClick: resetAll, className:"text-xs px-3 py-2 rounded-xl bg-slate-700 hover:bg-slate-600 font-bold" }, "重置")
-          )
-        ),
-        React.createElement("div", { className:"grid grid-cols-3 gap-2 items-end" },
-          React.createElement("div", { className:"col-span-2" },
-            React.createElement("div", { className:"text-xs text-slate-400 mb-1" }, "手動補充預備金"),
-            React.createElement("input", {
-              defaultValue: draftRef.current.extraReserveAdd,
-              inputMode:"numeric",
-              className:"w-full bg-slate-900 border border-slate-700 rounded-2xl px-4 py-3 text-lg mono focus:outline-none focus:ring-2 focus:ring-emerald-500",
-              onInput: (e)=>{ draftRef.current.extraReserveAdd = e.target.value; }
-            })
-          ),
-          React.createElement("button", { onClick: addExtraReserve, className:"h-[52px] bg-emerald-600 hover:bg-emerald-700 rounded-2xl font-black" }, "加入")
-        )
-      ),
-
       tab==="home" && HomePage(),
       tab==="convert" && ConvertPage(),
       tab==="orders" && OrdersPage(),
@@ -911,7 +881,13 @@ DCA 投入：${usdtSpent}U｜存入預備：${usdtSaved}U
           : state.logs.slice(0, 18).map(l =>
               React.createElement("div", { key:l.id, className:"text-sm mono border-b border-slate-900 py-2 last:border-0" },
                 React.createElement("span", { className:"text-slate-500" }, `[${l.date}] `),
-                React.createElement("span", null, l.msg)
+                React.createElement("span", {
+                  className:
+                    l.type==="alert" ? "text-red-300 font-bold" :
+                    l.type==="success" ? "text-emerald-300" :
+                    l.type==="warning" ? "text-yellow-300" :
+                    l.type==="secure" ? "text-sky-300" : "text-slate-300"
+                }, l.msg)
               )
             )
       )

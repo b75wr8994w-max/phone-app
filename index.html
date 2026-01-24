@@ -3,17 +3,16 @@
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-  <meta name="app-version" content="v1-2026-01-24-1410" />
-  <title>Project 2030: 憲法守護者</title>
+  <title>Project 2030：憲法守護者</title>
 
-  <!-- React (Production) -->
-  <script src="https://unpkg.com/react@18/umd/react.production.min.js"></script>
-  <script src="https://unpkg.com/react-dom@18/umd/react-dom.production.min.js"></script>
+  <!-- React -->
+  <script src="https://unpkg.com/react@18/umd/react.development.js" crossorigin></script>
+  <script src="https://unpkg.com/react-dom@18/umd/react-dom.development.js" crossorigin></script>
 
-  <!-- Babel (in-browser JSX compile) -->
+  <!-- Babel -->
   <script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
 
-  <!-- Tailwind CDN -->
+  <!-- Tailwind -->
   <script src="https://cdn.tailwindcss.com"></script>
 
   <!-- Fonts -->
@@ -21,569 +20,171 @@
 
   <style>
     body {
-      background-color: #1a1a1a;
+      background-color: #111827;
       font-family: 'Noto Sans TC', sans-serif;
-      color: #e0e0e0;
+      color: #e5e7eb;
     }
-    .pixel-font { font-family: 'Press Start 2P', cursive; }
-    .retro-container { border: 4px solid #4a4a4a; box-shadow: 5px 5px 0px #000; }
-    .retro-btn { transition: all 0.1s; box-shadow: 3px 3px 0px #000; }
-    .retro-btn:active { transform: translate(2px, 2px); box-shadow: 1px 1px 0px #000; }
-    .crt-scanline {
-      background:
-        linear-gradient(rgba(18, 16, 16, 0) 50%, rgba(0, 0, 0, 0.25) 50%),
-        linear-gradient(90deg, rgba(255, 0, 0, 0.06), rgba(0, 255, 0, 0.02), rgba(0, 0, 255, 0.06));
-      background-size: 100% 2px, 3px 100%;
-      pointer-events: none;
-    }
-    ::-webkit-scrollbar { width: 10px; }
-    ::-webkit-scrollbar-track { background: #2d2d2d; }
-    ::-webkit-scrollbar-thumb { background: #888; border: 1px solid #000; }
 
-    /* Loading overlay */
-    #boot {
+    .pixel {
+      font-family: 'Press Start 2P', monospace;
+    }
+
+    /* ===== CRT 視覺層（不吃點擊）===== */
+    .crt {
+      position: relative;
+    }
+
+    .crt::before {
+      content: "";
       position: fixed;
       inset: 0;
-      display: grid;
-      place-items: center;
-      background: #111;
+      pointer-events: none;
       z-index: 9999;
-    }
-    .boot-card {
-      width: min(92vw, 420px);
-      border: 2px solid #2a2a2a;
-      padding: 18px;
-      border-radius: 12px;
-      background: #161616;
-      box-shadow: 0 20px 60px rgba(0,0,0,.45);
-      text-align: center;
+      background:
+        linear-gradient(rgba(18,16,16,0) 50%, rgba(0,0,0,0.25) 50%),
+        linear-gradient(90deg,
+          rgba(255,0,0,0.05),
+          rgba(0,255,0,0.02),
+          rgba(0,0,255,0.05)
+        );
+      background-size: 100% 2px, 3px 100%;
     }
   </style>
 </head>
 
 <body>
-  <!-- Loading -->
-  <div id="boot">
-    <div class="boot-card">
-      <div class="pixel-font text-lg text-green-400 mb-3">PROJECT 2030</div>
-      <div class="text-gray-300 text-sm mb-3">載入中…</div>
-      <div class="w-full bg-gray-800 h-2 rounded overflow-hidden">
-        <div id="bootbar" class="bg-green-500 h-full" style="width: 15%"></div>
-      </div>
-      <div class="text-[11px] text-gray-500 mt-3">若卡住，請重新整理或稍等 5 秒</div>
-    </div>
-  </div>
-
   <div id="root"></div>
 
   <script type="text/babel">
     const { useState, useEffect } = React;
 
-    // --- 遊戲常數設定 ---
-    const GOAL_BTC = 3.0;
+    const GOAL_BTC = 3;
     const TARGET_DATE = new Date("2030-12-31").getTime();
-    const SAVE_KEY = "project2030_save_v2";
-    const LOG_LIMIT = 200;
 
-    // 初始狀態
-    const INITIAL_STATE = {
-      btc: 0.0,
-      usdtReserve: 0,
-      eth: 34.0,
-      ada: 74000.0,
+    const INITIAL = {
+      btc: 0,
+      reserve: 0,
       logs: [],
-      lastCheckDate: null,
-      consecutiveGreedWeeks: 0,
-      pendingOrders: [],
-      coldWalletCount: 0.0,
     };
 
-    const App = () => {
-      const [gameState, setGameState] = useState(INITIAL_STATE);
-      const [inputs, setInputs] = useState({
-        fngIndex: 50,
-        btcPrice: 90000,
-        ethBtcRatio: 0.05,
-        adaBtcRatio: 0.000008,
-      });
-      const [activeTab, setActiveTab] = useState('dashboard');
-      const [showActionReport, setShowActionReport] = useState(null);
+    function App() {
+      const [state, setState] = useState(INITIAL);
+      const [btcPrice, setBtcPrice] = useState(90000);
+      const [fng, setFng] = useState(50);
 
-      // --- Helper: Log ---
-      const addLog = (msg, type = 'info') => {
-        const timestamp = new Date().toLocaleDateString('zh-TW');
-        const newLog = { id: Date.now() + Math.random(), date: timestamp, msg, type };
-        setGameState(prev => ({
-          ...prev,
-          logs: [newLog, ...prev.logs].slice(0, LOG_LIMIT)
-        }));
-      };
-
-      // --- Load/Save ---
       useEffect(() => {
-        try {
-          const saved = localStorage.getItem(SAVE_KEY);
-          if (saved) {
-            setGameState(JSON.parse(saved));
-          } else {
-            // 用函式式更新避免初次 setState race
-            setGameState(prev => {
-              const next = { ...prev };
-              return next;
-            });
-            // 延遲寫入 log，確保狀態已建立
-            setTimeout(() => {
-              addLog("系統初始化完成。執行人：陳祥豪。目標：2030年累積 3 BTC。", "system");
-            }, 0);
-          }
-        } catch (e) {
-          console.error("讀取存檔失敗", e);
-        }
+        const saved = localStorage.getItem("p2030");
+        if (saved) setState(JSON.parse(saved));
+        else addLog("系統初始化完成");
       }, []);
 
       useEffect(() => {
-        try {
-          localStorage.setItem(SAVE_KEY, JSON.stringify(gameState));
-        } catch (e) {
-          console.error("存檔失敗", e);
-        }
-      }, [gameState]);
+        localStorage.setItem("p2030", JSON.stringify(state));
+      }, [state]);
 
-      // --- Helper ---
-      const getDaysRemaining = () => {
-        const now = Date.now();
-        const diff = TARGET_DATE - now;
-        return Math.max(0, Math.ceil(diff / (1000 * 60 * 60 * 24)));
-      };
+      function addLog(msg) {
+        setState(s => ({
+          ...s,
+          logs: [
+            { id: Date.now(), msg },
+            ...s.logs
+          ].slice(0, 20)
+        }));
+      }
 
-      const calculateProgress = () => {
-        const p = ((gameState.btc + gameState.coldWalletCount) / GOAL_BTC) * 100;
-        return Math.max(0, Math.min(100, p));
-      };
+      function execute() {
+        let spent = 0;
+        let saved = 0;
 
-      // --- Weekly Strategy ---
-      const executeWeeklyStrategy = () => {
-        const { fngIndex, btcPrice } = inputs;
-        let action = "";
-        let usdtSpent = 0;
-        let usdtSaved = 0;
-        let btcBought = 0;
-        let reserveUsed = 0;
-        let greedCounter = gameState.consecutiveGreedWeeks;
-
-        if (!btcPrice || btcPrice <= 0) {
-          alert("BTC 價格必須大於 0");
-          return;
-        }
-
-        if (fngIndex < 20) {
-          action = "極度恐慌！啟動全軍突擊！";
-          usdtSpent = 180;
-          if (gameState.usdtReserve > 0) {
-            reserveUsed = Math.floor(gameState.usdtReserve * 0.25);
-            usdtSpent += reserveUsed;
-          }
-          greedCounter = 0;
-        } else if (fngIndex >= 20 && fngIndex <= 40) {
-          action = "市場恐懼，加碼進攻。";
-          usdtSpent = 120;
-          usdtSaved = 60;
-          greedCounter = 0;
-        } else if (fngIndex > 40 && fngIndex <= 75) {
-          action = "市場平穩，保守推進。";
-          usdtSpent = 60;
-          usdtSaved = 120;
-          greedCounter = 0;
+        if (fng < 20) {
+          spent = 180;
+          addLog("極度恐慌：全力買進");
+        } else if (fng < 40) {
+          spent = 120;
+          saved = 60;
+          addLog("恐懼：加碼進攻");
+        } else if (fng < 75) {
+          spent = 60;
+          saved = 120;
+          addLog("中性：保守推進");
         } else {
-          if (greedCounter >= 8) {
-            action = "強制條款：長牛保險啟動 (市場過熱太久)。";
-            usdtSpent = 60;
-            usdtSaved = 120;
-            greedCounter += 1;
-          } else {
-            action = "市場貪婪，暫停買進，囤積彈藥。";
-            usdtSpent = 0;
-            usdtSaved = 180;
-            greedCounter += 1;
-          }
+          saved = 180;
+          addLog("貪婪：全面存錢");
         }
 
-        if (usdtSpent > 0) btcBought = usdtSpent / btcPrice;
+        const btc = spent / btcPrice;
 
-        // 先算出 newReserve，讓報告顯示正確（避免讀到舊 state）
-        const newReserve = gameState.usdtReserve + usdtSaved - reserveUsed;
-
-        setGameState(prev => ({
-          ...prev,
-          btc: prev.btc + btcBought,
-          usdtReserve: prev.usdtReserve + usdtSaved - reserveUsed,
-          consecutiveGreedWeeks: greedCounter,
-          lastCheckDate: new Date().toISOString()
+        setState(s => ({
+          ...s,
+          btc: s.btc + btc,
+          reserve: s.reserve + saved
         }));
+      }
 
-        const report = {
-          title: "週報執行結果",
-          action,
-          details: [
-            `恐貪指數: ${fngIndex}`,
-            `投入資金: ${usdtSpent} USDT`,
-            `存入預備金: ${usdtSaved} USDT`,
-            `使用預備金: ${reserveUsed} USDT`,
-            `買入 BTC: ${btcBought.toFixed(8)} 顆`,
-            `當前預備金總額: ${newReserve} USDT`,
-          ],
-        };
-
-        addLog(`[週報] ${action} 買入 ${btcBought.toFixed(6)} BTC`, usdtSpent > 0 ? "success" : "warning");
-        checkStrategyAlerts(inputs.ethBtcRatio, inputs.adaBtcRatio);
-        setShowActionReport(report);
-      };
-
-      // --- Alerts ---
-      const checkStrategyAlerts = (ethRatio, adaRatio) => {
-        const alerts = [];
-
-        if (ethRatio >= 0.075 && gameState.eth >= 12) {
-          alerts.push("🚨 ETH 匯率達標 (0.075)！執行第三階：全數換 BTC！");
-        } else if (ethRatio >= 0.065 && gameState.eth >= 12) {
-          alerts.push("⚠️ ETH 匯率達標 (0.065)！執行第二階：6顆換BTC，6顆換U掛單。");
-        } else if (ethRatio >= 0.060 && gameState.eth >= 10) {
-          alerts.push("⚠️ ETH 匯率達標 (0.060)！執行第一階：5顆換BTC，5顆換U掛單。");
-        }
-
-        if (adaRatio >= 0.000013 && gameState.ada >= 34000) {
-          alerts.push("🚨 ADA 逃生艙第二階 (0.000013) 開啟！全換 BTC！");
-        } else if (adaRatio >= 0.000010 && gameState.ada >= 40000) {
-          alerts.push("⚠️ ADA 逃生艙第一階 (0.000010) 開啟！40,000 ADA 換 BTC！");
-        }
-
-        if (alerts.length) {
-          alerts.forEach(a => addLog(a, 'alert'));
-          alert(alerts.join("\n"));
-        }
-      };
-
-      // --- Conversion (simplified) ---
-      const executeConversion = (type, amount, target) => {
-        const resultAmount = parseFloat(prompt(`您將 ${amount} ${type} 轉換為 ${target}。\n請輸入實際獲得的數量：`));
-        if (isNaN(resultAmount) || resultAmount <= 0) return;
-
-        setGameState(prev => {
-          const newState = { ...prev };
-          const k = type.toLowerCase();
-          newState[k] = (newState[k] || 0) - parseFloat(amount);
-          if (target === 'BTC') {
-            newState.btc += resultAmount;
-          } else if (target === 'USDT') {
-            // 僅做提醒
-          }
-          return newState;
-        });
-
-        if (target === 'USDT') {
-          addLog(`[掛單提醒] 已將 ${amount} ${type} 換為 ${resultAmount} USDT。請務必掛單在 BTC 回撤處接回！`, "warning");
-        }
-        addLog(`[戰略轉換] ${amount} ${type} -> ${resultAmount} ${target}`, "success");
-      };
-
-      // --- Cold Wallet ---
-      const moveToColdWallet = () => {
-        if (gameState.btc < 0.05) {
-          alert("累積未達 0.05 BTC，請節省手續費！");
-          return;
-        }
-        const amount = gameState.btc;
-        setGameState(prev => ({
-          ...prev,
-          btc: 0,
-          coldWalletCount: prev.coldWalletCount + amount
-        }));
-        addLog(`[鐵血紀律] 提領 ${amount.toFixed(6)} BTC 至冷錢包。資產安全確認。`, "secure");
-      };
-
-      // --- UI Components ---
-      const StatusBar = () => (
-        <div className="bg-gray-800 p-4 mb-4 retro-container flex flex-wrap justify-between items-center">
-          <div className="flex items-center space-x-4">
-            <div className="text-yellow-500 font-bold pixel-font text-xl">
-              LV.{Math.floor((gameState.btc + gameState.coldWalletCount) * 10)} 守護者
-            </div>
-            <div className="text-xs text-gray-400">
-              距離 2030 還剩 {getDaysRemaining()} 天
-            </div>
-          </div>
-          <div className="w-full md:w-1/2 mt-2 md:mt-0">
-            <div className="flex justify-between text-xs mb-1">
-              <span>目標進度: 3.0 BTC</span>
-              <span>{(gameState.btc + gameState.coldWalletCount).toFixed(4)} / 3.0</span>
-            </div>
-            <div className="w-full bg-gray-700 h-4 rounded-full overflow-hidden border border-gray-600">
-              <div
-                className="bg-gradient-to-r from-green-500 to-emerald-400 h-full transition-all duration-500"
-                style={{ width: `${calculateProgress()}%` }}
-              ></div>
-            </div>
-          </div>
-        </div>
-      );
-
-      const Inventory = () => (
-        <div className="grid grid-cols-2 md:grid-cols-4 gap-4 mb-6">
-          <div className="bg-gray-900 p-4 border-2 border-green-700 rounded shadow-[4px_4px_0_#064e3b]">
-            <h3 className="text-green-500 text-xs pixel-font mb-2">HOT WALLET (BTC)</h3>
-            <p className="text-2xl font-bold">{gameState.btc.toFixed(6)}</p>
-            <button onClick={moveToColdWallet} className="mt-2 text-xs bg-blue-900 hover:bg-blue-800 text-white px-2 py-1 w-full retro-btn">
-              提領至冷錢包
-            </button>
-          </div>
-          <div className="bg-gray-900 p-4 border-2 border-blue-700 rounded shadow-[4px_4px_0_#1e3a8a]">
-            <h3 className="text-blue-400 text-xs pixel-font mb-2">COLD STORAGE</h3>
-            <p className="text-2xl font-bold">{gameState.coldWalletCount.toFixed(6)}</p>
-            <p className="text-xs text-gray-500 mt-1">絕對防禦領域</p>
-          </div>
-          <div className="bg-gray-900 p-4 border-2 border-yellow-700 rounded shadow-[4px_4px_0_#713f12]">
-            <h3 className="text-yellow-500 text-xs pixel-font mb-2">RESERVE (USDT)</h3>
-            <p className="text-2xl font-bold">${gameState.usdtReserve.toLocaleString()}</p>
-            <p className="text-xs text-gray-500 mt-1">黑天鵝彈藥庫</p>
-          </div>
-          <div className="bg-gray-900 p-4 border-2 border-purple-700 rounded shadow-[4px_4px_0_#581c87]">
-            <h3 className="text-purple-500 text-xs pixel-font mb-2">ALTCOINS</h3>
-            <div className="text-sm">
-              <p>ETH: {gameState.eth.toFixed(2)}</p>
-              <p>ADA: {gameState.ada.toLocaleString()}</p>
-            </div>
-          </div>
-        </div>
-      );
-
-      const CommandPost = () => (
-        <div className="bg-gray-800 p-6 retro-container mb-6 relative overflow-hidden">
-          <div className="absolute top-0 left-0 w-full h-1 bg-green-500 opacity-50"></div>
-          <h2 className="pixel-font text-green-400 mb-6 flex items-center">
-            <span className="mr-2">⚡</span> 戰術指揮中心 (每週執行)
-          </h2>
-
-          <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-            <div>
-              <label className="block text-gray-400 text-sm mb-2">當前 BTC 價格 (USDT)</label>
-              <input
-                type="number"
-                value={inputs.btcPrice}
-                onChange={(e) => setInputs({ ...inputs, btcPrice: parseFloat(e.target.value) })}
-                className="w-full bg-gray-900 border border-gray-600 p-3 text-white focus:border-green-500 focus:outline-none pixel-font"
-              />
-            </div>
-            <div>
-              <label className="block text-gray-400 text-sm mb-2">恐懼與貪婪指數 (0-100)</label>
-              <div className="flex items-center">
-                <input
-                  type="range" min="0" max="100"
-                  value={inputs.fngIndex}
-                  onChange={(e) => setInputs({ ...inputs, fngIndex: parseInt(e.target.value) })}
-                  className="w-full mr-4 accent-green-500 h-2 bg-gray-700 rounded-lg appearance-none cursor-pointer"
-                />
-                <span className={`pixel-font text-xl w-12 ${inputs.fngIndex < 20 ? 'text-red-500' : inputs.fngIndex > 75 ? 'text-green-500' : 'text-white'}`}>
-                  {inputs.fngIndex}
-                </span>
-              </div>
-              <p className="text-xs mt-1 text-gray-500">
-                {inputs.fngIndex < 20 ? "極度恐慌 (準備全買)" :
-                 inputs.fngIndex < 40 ? "恐懼 (加碼)" :
-                 inputs.fngIndex < 75 ? "中性 (保守)" : "貪婪 (存錢)"}
-              </p>
-            </div>
-          </div>
-
-          <div className="mt-6 border-t border-gray-700 pt-4">
-            <div className="flex justify-between items-center mb-2">
-              <span className="text-sm text-gray-400">監控數據 (選填)</span>
-            </div>
-            <div className="grid grid-cols-2 gap-4">
-              <div>
-                <label className="text-xs text-gray-500">ETH/BTC 匯率</label>
-                <input
-                  type="number" step="0.001"
-                  value={inputs.ethBtcRatio}
-                  onChange={(e) => setInputs({ ...inputs, ethBtcRatio: parseFloat(e.target.value) })}
-                  className="w-full bg-gray-900 border border-gray-700 p-2 text-sm"
-                />
-              </div>
-              <div>
-                <label className="text-xs text-gray-500">ADA/BTC 匯率</label>
-                <input
-                  type="number" step="0.000001"
-                  value={inputs.adaBtcRatio}
-                  onChange={(e) => setInputs({ ...inputs, adaBtcRatio: parseFloat(e.target.value) })}
-                  className="w-full bg-gray-900 border border-gray-700 p-2 text-sm"
-                />
-              </div>
-            </div>
-          </div>
-
-          <button
-            onClick={executeWeeklyStrategy}
-            className="mt-6 w-full bg-green-700 hover:bg-green-600 text-white font-bold py-4 pixel-font retro-btn border-b-4 border-green-900 active:border-b-0 active:mt-7"
-          >
-            執行每週決策 (EXECUTE)
-          </button>
-        </div>
-      );
-
-      const LogTerminal = () => (
-        <div className="bg-black border border-gray-700 p-4 h-64 overflow-y-auto font-mono text-sm relative shadow-inner">
-          <div className="sticky top-0 bg-black/90 pb-2 border-b border-gray-800 mb-2 text-gray-500 text-xs">
-            &gt; SYSTEM LOGS
-          </div>
-          {gameState.logs.length === 0 && <span className="text-gray-600">等待指令...</span>}
-          {gameState.logs.map((log) => (
-            <div key={log.id} className="mb-2 border-b border-gray-900 pb-1">
-              <span className="text-gray-500">[{log.date}]</span>
-              <span className={`ml-2 ${
-                log.type === 'alert' ? 'text-red-400 font-bold' :
-                log.type === 'success' ? 'text-green-400' :
-                log.type === 'warning' ? 'text-yellow-400' :
-                log.type === 'secure' ? 'text-blue-400' : 'text-gray-300'
-              }`}>
-                {log.msg}
-              </span>
-            </div>
-          ))}
-        </div>
-      );
-
-      const StrategyPanel = () => (
-        <div className="bg-gray-800 p-6 retro-container mb-6">
-          <h2 className="pixel-font text-purple-400 mb-4">⚔️ 戰略轉換模組</h2>
-
-          <div className="grid gap-4">
-            <div className="bg-gray-900 p-4 rounded border-l-4 border-purple-600">
-              <h3 className="font-bold text-white mb-2">ETH 策略 (持有: {gameState.eth})</h3>
-              <div className="flex gap-2 text-xs flex-wrap">
-                <button onClick={() => executeConversion('ETH', 5, 'BTC')} className="bg-gray-700 hover:bg-gray-600 px-3 py-2 rounded">
-                  一階：5 ETH -&gt; BTC
-                </button>
-                <button onClick={() => executeConversion('ETH', 5, 'USDT')} className="bg-gray-700 hover:bg-gray-600 px-3 py-2 rounded">
-                  一階：5 ETH -&gt; USDT
-                </button>
-              </div>
-            </div>
-
-            <div className="bg-gray-900 p-4 rounded border-l-4 border-blue-600">
-              <h3 className="font-bold text-white mb-2">ADA 策略 (持有: {gameState.ada})</h3>
-              <div className="flex gap-2 text-xs flex-wrap">
-                <button onClick={() => executeConversion('ADA', 40000, 'BTC')} className="bg-gray-700 hover:bg-gray-600 px-3 py-2 rounded">
-                  一階：4萬 ADA -&gt; BTC
-                </button>
-                <button onClick={() => executeConversion('ADA', 34000, 'BTC')} className="bg-gray-700 hover:bg-gray-600 px-3 py-2 rounded">
-                  二階：3.4萬 ADA -&gt; BTC
-                </button>
-              </div>
-            </div>
-          </div>
-        </div>
-      );
-
-      const ReportModal = () => {
-        if (!showActionReport) return null;
-        return (
-          <div className="fixed inset-0 bg-black/80 flex items-center justify-center z-50 p-4">
-            <div className="bg-gray-800 border-2 border-green-500 max-w-md w-full p-6 relative shadow-[0_0_20px_rgba(16,185,129,0.5)]">
-              <h3 className="pixel-font text-xl text-center text-green-400 mb-4">{showActionReport.title}</h3>
-              <div className="text-center text-2xl font-bold text-white mb-6">
-                {showActionReport.action}
-              </div>
-              <div className="space-y-2 text-gray-300 text-sm mb-6 bg-gray-900 p-4 rounded">
-                {showActionReport.details.map((detail, idx) => (
-                  <div key={idx} className="border-b border-gray-800 last:border-0 pb-1">{detail}</div>
-                ))}
-              </div>
-              <button
-                onClick={() => setShowActionReport(null)}
-                className="w-full bg-green-700 hover:bg-green-600 text-white py-3 font-bold retro-btn"
-              >
-                確認 (CONFIRM)
-              </button>
-            </div>
-          </div>
-        );
-      };
+      const progress = Math.min(100, (state.btc / GOAL_BTC) * 100);
+      const daysLeft = Math.ceil((TARGET_DATE - Date.now()) / 86400000);
 
       return (
-        <div className="min-h-screen pb-10 crt-scanline">
-          <div className="max-w-4xl mx-auto p-4">
-            <header className="mb-6 text-center border-b border-gray-700 pb-4">
-              <h1 className="text-3xl md:text-4xl text-white pixel-font mb-2">PROJECT 2030</h1>
-              <p className="text-gray-500 text-xs tracking-widest">終極防禦．執行憲法</p>
-            </header>
+        <div className="crt min-h-screen p-4 pb-24">
+          <h1 className="pixel text-xl text-green-400 text-center mb-2">
+            PROJECT 2030
+          </h1>
+          <p className="text-center text-xs text-gray-400 mb-4">
+            剩餘 {daysLeft} 天
+          </p>
 
-            <StatusBar />
-            <Inventory />
-
-            <div className="flex mb-4 border-b border-gray-700">
-              <button
-                className={`px-4 py-2 pixel-font text-xs ${activeTab === 'dashboard' ? 'text-green-400 border-b-2 border-green-400' : 'text-gray-500'}`}
-                onClick={() => setActiveTab('dashboard')}
-              >
-                每週任務
-              </button>
-              <button
-                className={`px-4 py-2 pixel-font text-xs ${activeTab === 'strategy' ? 'text-purple-400 border-b-2 border-purple-400' : 'text-gray-500'}`}
-                onClick={() => setActiveTab('strategy')}
-              >
-                戰略轉換
-              </button>
-              <button
-                className={`px-4 py-2 pixel-font text-xs ${activeTab === 'constitution' ? 'text-yellow-400 border-b-2 border-yellow-400' : 'text-gray-500'}`}
-                onClick={() => setActiveTab('constitution')}
-              >
-                憲法 (SOP)
-              </button>
+          <div className="bg-gray-800 p-4 rounded-xl mb-4">
+            <div className="flex justify-between text-xs mb-1">
+              <span>BTC 進度</span>
+              <span>{state.btc.toFixed(4)} / 3.0000</span>
             </div>
+            <div className="h-3 bg-gray-700 rounded overflow-hidden">
+              <div
+                className="h-full bg-green-500"
+                style={{ width: progress + "%" }}
+              />
+            </div>
+          </div>
 
-            {activeTab === 'dashboard' && <CommandPost />}
-            {activeTab === 'strategy' && <StrategyPanel />}
-            {activeTab === 'constitution' && (
-              <div className="bg-gray-800 p-6 retro-container text-sm leading-relaxed text-gray-300">
-                <h3 className="font-bold text-white mb-2">第四章：鐵血紀律</h3>
-                <ul className="list-disc pl-5 space-y-2">
-                  <li>累積達 0.05 BTC ➔ 立即提領至冷錢包。</li>
-                  <li>穩定幣超過總資產 30% 需換 USDC 存冷錢包。</li>
-                  <li>警報未響，專心工作，陪伴家人。</li>
-                </ul>
-                <h3 className="font-bold text-white mt-4 mb-2">自我契約</h3>
-                <p className="italic text-gray-400 border-l-2 border-gray-600 pl-4">
-                  "我不預測市場，我只執行規則。只要活著，時間會帶我到終點。"
-                </p>
-              </div>
-            )}
+          <div className="bg-gray-800 p-4 rounded-xl mb-4">
+            <label className="text-xs text-gray-400">BTC 價格</label>
+            <input
+              type="number"
+              className="w-full p-2 bg-gray-900 rounded mt-1"
+              value={btcPrice}
+              onChange={e => setBtcPrice(+e.target.value)}
+            />
 
-            <LogTerminal />
-            <ReportModal />
+            <label className="text-xs text-gray-400 mt-4 block">
+              恐懼 / 貪婪：{fng}
+            </label>
+            <input
+              type="range"
+              min="0"
+              max="100"
+              value={fng}
+              onChange={e => setFng(+e.target.value)}
+              className="w-full accent-green-500"
+            />
+
+            <button
+              onClick={execute}
+              className="w-full mt-4 bg-green-600 active:bg-green-700 py-3 rounded font-bold"
+            >
+              執行每週決策
+            </button>
+          </div>
+
+          <div className="bg-black p-3 rounded text-xs font-mono">
+            {state.logs.map(l => (
+              <div key={l.id}>> {l.msg}</div>
+            ))}
           </div>
         </div>
       );
-    };
+    }
 
-    // Mount
-    const root = ReactDOM.createRoot(document.getElementById('root'));
-    root.render(<App />);
-
-    // Hide boot overlay (simple progress)
-    const bar = document.getElementById("bootbar");
-    let w = 15;
-    const t = setInterval(() => {
-      w = Math.min(95, w + 10);
-      bar.style.width = w + "%";
-    }, 120);
-
-    window.addEventListener("load", () => {
-      clearInterval(t);
-      bar.style.width = "100%";
-      setTimeout(() => {
-        const boot = document.getElementById("boot");
-        if (boot) boot.remove();
-      }, 200);
-    });
+    ReactDOM.createRoot(document.getElementById("root")).render(<App />);
   </script>
 </body>
 </html>

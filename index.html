@@ -2,7 +2,7 @@
 <html lang="zh-TW">
 <head>
   <meta charset="UTF-8" />
-  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover" />
   <title>Project 2030: 憲法守護者</title>
 
   <script src="https://unpkg.com/react@18/umd/react.development.js" crossorigin></script>
@@ -13,27 +13,50 @@
   <link href="https://fonts.googleapis.com/css2?family=Press+Start+2P&family=Noto+Sans+TC:wght@400;700&display=swap" rel="stylesheet">
 
   <style>
-    body { background-color:#111827; font-family:'Noto Sans TC',sans-serif; color:#e5e7eb; }
+    body { background:#111827; font-family:'Noto Sans TC',sans-serif; color:#e5e7eb; }
     .pixel-font { font-family:'Press Start 2P', monospace; }
     .retro-container { border:3px solid #3f3f46; box-shadow:6px 6px 0px #000; }
     .retro-btn { transition:all .08s; box-shadow:3px 3px 0px #000; }
     .retro-btn:active { transform:translate(2px,2px); box-shadow:1px 1px 0px #000; }
+    .pb-safe { padding-bottom: env(safe-area-inset-bottom); }
 
-    /* ✅ CRT 視覺層：永遠不吃點擊 */
-    .crt{ position:relative; }
+    /* iOS：避免小於 16px 導致縮放/焦點怪異 */
+    input, button, select, textarea { font-size:16px; }
+
+    /* CRT 視覺層：絕對不吃點擊 */
     .crt::before{
       content:""; position:fixed; inset:0; pointer-events:none; z-index:9999;
       background:
-        linear-gradient(rgba(18,16,16,0) 50%, rgba(0,0,0,0.22) 50%),
-        linear-gradient(90deg, rgba(255,0,0,0.05), rgba(0,255,0,0.02), rgba(0,0,255,0.05));
+        linear-gradient(rgba(18,16,16,0) 50%, rgba(0,0,0,0.20) 50%),
+        linear-gradient(90deg, rgba(255,0,0,0.04), rgba(0,255,0,0.02), rgba(0,0,255,0.04));
       background-size:100% 2px, 3px 100%;
-      opacity:.7;
+      opacity:.65;
     }
 
-    .pb-safe{ padding-bottom: env(safe-area-inset-bottom); }
-
-    /* ✅ iOS：避免點擊縮放、改善輸入體驗 */
-    input, button, select, textarea { font-size:16px; } /* iOS <16px 會自動放大/怪行為 */
+    /* ✅ iOS range：強化可拖曳（關鍵） */
+    input[type="range"]{
+      -webkit-appearance: none;
+      appearance: none;
+      width: 100%;
+      height: 28px;            /* 讓手指好拖 */
+      background: transparent;
+      touch-action: pan-x;     /* ✅ 只允許水平手勢給滑桿 */
+    }
+    input[type="range"]::-webkit-slider-runnable-track{
+      height: 8px;
+      background: #e5e7eb;
+      border-radius: 999px;
+    }
+    input[type="range"]::-webkit-slider-thumb{
+      -webkit-appearance: none;
+      appearance: none;
+      width: 22px;
+      height: 22px;
+      margin-top: -7px;
+      background: #ffffff;
+      border-radius: 50%;
+      border: 2px solid #111827;
+    }
   </style>
 </head>
 
@@ -41,11 +64,11 @@
   <div id="root"></div>
 
   <script type="text/babel">
-    const { useState, useEffect, useMemo } = React;
+    const { useState, useEffect, useMemo, useRef } = React;
 
     const GOAL_BTC = 3.0;
     const TARGET_DATE = new Date("2030-12-31").getTime();
-    const SAVE_KEY = "project2030_save_github_pages_v3";
+    const SAVE_KEY = "project2030_save_v4_iosfix";
 
     const INITIAL_STATE = {
       btc: 0.0,
@@ -63,23 +86,13 @@
       const [activeTab, setActiveTab] = useState("dashboard");
       const [modal, setModal] = useState(null);
 
-      /**
-       * ✅ 關鍵：inputs 用「兩層」
-       * - draft：你正在輸入的字串（不會造成鍵盤亂跳）
-       * - inputs：真正執行邏輯用的數值（只在 blur 或按 EXECUTE 時才同步）
-       */
-      const [draft, setDraft] = useState({
-        btcPrice: "90000",
-        ethBtcRatio: "0.05",
-        adaBtcRatio: "0.000008",
-      });
+      // ✅ 只讓滑桿是 controlled（不會讓鍵盤亂掉）
+      const [fngIndex, setFngIndex] = useState(50);
 
-      const [inputs, setInputs] = useState({
-        fngIndex: 50,
-        btcPrice: 90000,
-        ethBtcRatio: 0.05,
-        adaBtcRatio: 0.000008,
-      });
+      // ✅ 其餘數字欄位全部用 ref（uncontrolled），輸入時不 re-render → 鍵盤不會收
+      const btcPriceRef = useRef(null);
+      const ethRatioRef = useRef(null);
+      const adaRatioRef = useRef(null);
 
       // --- Load/Save ---
       useEffect(() => {
@@ -88,19 +101,6 @@
           if (saved) {
             const parsed = JSON.parse(saved);
             setGameState(parsed);
-
-            // 同步 draft / inputs（避免讀檔後不一致）
-            setInputs(prev => ({
-              ...prev,
-              btcPrice: 90000,
-              ethBtcRatio: 0.05,
-              adaBtcRatio: 0.000008,
-            }));
-            setDraft({
-              btcPrice: "90000",
-              ethBtcRatio: "0.05",
-              adaBtcRatio: "0.000008",
-            });
           } else {
             addLog("系統初始化完成。目標：2030年累積 3 BTC。", "system");
           }
@@ -125,18 +125,20 @@
       const totalBTC = () => gameState.btc + gameState.coldWalletCount;
       const progress = () => Math.min(100, (totalBTC() / GOAL_BTC) * 100);
 
-      // ✅ 把 draft -> inputs（在 blur 或按下 EXECUTE 之前呼叫）
-      const syncDraftToInputs = () => {
-        const toNum = (s, fallback) => {
-          const n = parseFloat(String(s).replace(/,/g,''));
-          return Number.isFinite(n) ? n : fallback;
-        };
-        setInputs(prev => ({
-          ...prev,
-          btcPrice: toNum(draft.btcPrice, prev.btcPrice),
-          ethBtcRatio: toNum(draft.ethBtcRatio, prev.ethBtcRatio),
-          adaBtcRatio: toNum(draft.adaBtcRatio, prev.adaBtcRatio),
-        }));
+      const readNumber = (ref, fallback) => {
+        const el = ref.current;
+        if (!el) return fallback;
+        const raw = String(el.value ?? "").replace(/,/g,"").trim();
+        const n = parseFloat(raw);
+        return Number.isFinite(n) ? n : fallback;
+      };
+
+      const fngColor = () => {
+        const n = fngIndex;
+        if (n < 20) return "text-red-300";
+        if (n <= 40) return "text-yellow-300";
+        if (n <= 75) return "text-gray-200";
+        return "text-green-300";
       };
 
       const checkAlerts = (ethRatio, adaRatio, currentState) => {
@@ -149,11 +151,9 @@
       };
 
       const executeWeeklyStrategy = () => {
-        // ✅ 執行前先同步（你輸入到一半也不會漏）
-        syncDraftToInputs();
-
-        const { fngIndex } = inputs;
-        const btcPrice = parseFloat(String(draft.btcPrice).replace(/,/g,''));
+        const btcPrice = readNumber(btcPriceRef, 0);
+        const ethRatio = readNumber(ethRatioRef, 0.05);
+        const adaRatio = readNumber(adaRatioRef, 0.000008);
 
         if (!Number.isFinite(btcPrice) || btcPrice <= 0) {
           setModal({ title: "錯誤", content: "BTC 價格必須 > 0" });
@@ -215,13 +215,7 @@
         if (usdtSaved > 0) addLog(`預備金 +${usdtSaved} U`, "info");
         if (reserveUsed > 0) addLog(`動用預備金 -${reserveUsed} U`, "warning");
 
-        const ethRatio = parseFloat(draft.ethBtcRatio);
-        const adaRatio = parseFloat(draft.adaBtcRatio);
-        checkAlerts(
-          Number.isFinite(ethRatio) ? ethRatio : inputs.ethBtcRatio,
-          Number.isFinite(adaRatio) ? adaRatio : inputs.adaBtcRatio,
-          newState
-        );
+        checkAlerts(ethRatio, adaRatio, newState);
 
         setModal({
           title: "執行報告",
@@ -251,18 +245,11 @@
       };
 
       const resetAll = () => {
-        if (!confirm("確定要重置所有資料？（會清空 localStorage）")) return;
+        if (!confirm("確定要重置所有資料？")) return;
         localStorage.removeItem(SAVE_KEY);
         setGameState(INITIAL_STATE);
+        setFngIndex(50);
         setModal({ title:"已重置", content:"資料已清空，重新開始。" });
-      };
-
-      const fngColor = () => {
-        const n = inputs.fngIndex;
-        if (n < 20) return "text-red-300";
-        if (n <= 40) return "text-yellow-300";
-        if (n <= 75) return "text-gray-200";
-        return "text-green-300";
       };
 
       const StatusBar = () => (
@@ -318,20 +305,6 @@
               <div className="text-xs text-gray-500 text-right">黑天鵝彈藥庫</div>
             </div>
           </div>
-
-          <div className="bg-gray-800 p-4 rounded-xl border-l-4 border-purple-500 col-span-2">
-            <div className="text-xs text-gray-400 font-bold mb-2">ALTCOINS</div>
-            <div className="grid grid-cols-2 gap-3 text-sm">
-              <div className="bg-gray-900 p-3 rounded">
-                <div className="text-gray-400 text-xs mb-1">ETH</div>
-                <div className="font-mono text-lg">{gameState.eth.toFixed(2)}</div>
-              </div>
-              <div className="bg-gray-900 p-3 rounded">
-                <div className="text-gray-400 text-xs mb-1">ADA</div>
-                <div className="font-mono text-lg">{gameState.ada.toLocaleString()}</div>
-              </div>
-            </div>
-          </div>
         </div>
       );
 
@@ -342,27 +315,28 @@
 
             <label className="text-xs text-gray-400 block mb-1">本週 BTC 價格 (USDT)</label>
             <input
+              ref={btcPriceRef}
+              defaultValue="90000"
               inputMode="decimal"
               className="w-full bg-gray-900 text-white p-3 rounded-lg border border-gray-700 text-lg font-mono"
-              value={draft.btcPrice}
-              onInput={(e)=>setDraft(d=>({...d, btcPrice: e.target.value}))}
-              onBlur={syncDraftToInputs}
             />
 
-            {/* ✅ 1. 恐貪指數用拉的 */}
             <div className="mt-4">
               <label className="text-xs text-gray-400 block mb-2">
                 恐懼與貪婪指數（0-100）：
-                <span className={"ml-2 font-mono " + fngColor()}>{inputs.fngIndex}</span>
+                <span className={"ml-2 font-mono " + fngColor()}>{fngIndex}</span>
               </label>
 
+              <!-- ✅ 這裡是關鍵：onTouchMove preventDefault + touchAction pan-x -->
               <input
                 type="range"
                 min="0"
                 max="100"
-                value={inputs.fngIndex}
-                onInput={(e)=>setInputs(p=>({...p, fngIndex: parseInt(e.target.value,10)}))}
-                className="w-full accent-green-500"
+                value={fngIndex}
+                onChange={(e)=>setFngIndex(parseInt(e.target.value,10))}
+                onTouchMove={(e)=>{ e.preventDefault(); }}
+                onTouchStart={(e)=>{ e.stopPropagation(); }}
+                className="w-full"
               />
 
               <div className="flex justify-between text-xs mt-1 text-gray-500">
@@ -372,28 +346,25 @@
               </div>
             </div>
 
-            {/* 監控數據 */}
             <div className="mt-4 border-t border-gray-700 pt-4">
               <div className="text-xs text-gray-400 mb-2">監控數據（選填）</div>
               <div className="grid grid-cols-2 gap-3">
                 <div>
                   <label className="text-[11px] text-gray-500">ETH/BTC 匯率</label>
                   <input
+                    ref={ethRatioRef}
+                    defaultValue="0.05"
                     inputMode="decimal"
                     className="w-full bg-gray-900 p-2 rounded border border-gray-700 font-mono"
-                    value={draft.ethBtcRatio}
-                    onInput={(e)=>setDraft(d=>({...d, ethBtcRatio: e.target.value}))}
-                    onBlur={syncDraftToInputs}
                   />
                 </div>
                 <div>
                   <label className="text-[11px] text-gray-500">ADA/BTC 匯率</label>
                   <input
+                    ref={adaRatioRef}
+                    defaultValue="0.000008"
                     inputMode="decimal"
                     className="w-full bg-gray-900 p-2 rounded border border-gray-700 font-mono"
-                    value={draft.adaBtcRatio}
-                    onInput={(e)=>setDraft(d=>({...d, adaBtcRatio: e.target.value}))}
-                    onBlur={syncDraftToInputs}
                   />
                 </div>
               </div>
@@ -431,51 +402,17 @@
       );
 
       const Strategy = () => (
-        <div className="bg-gray-800 p-5 rounded-xl retro-container">
-          <h2 className="pixel-font text-purple-300 text-sm mb-3">⚔️ 戰略轉換（提醒）</h2>
-          <div className="text-sm text-gray-300 space-y-3">
-            <div className="bg-gray-900 p-4 rounded border-l-4 border-purple-600">
-              <div className="font-bold">ETH 策略</div>
-              <div className="text-xs text-gray-500 mt-1">目前 ETH：{gameState.eth.toFixed(2)}</div>
-              <div className="mt-2 text-xs space-y-1">
-                <div className={inputs.ethBtcRatio >= 0.06 ? "text-yellow-300 font-bold" : ""}>• 0.060：第一階</div>
-                <div className={inputs.ethBtcRatio >= 0.065 ? "text-yellow-300 font-bold" : ""}>• 0.065：第二階</div>
-                <div className={inputs.ethBtcRatio >= 0.075 ? "text-yellow-300 font-bold" : ""}>• 0.075：第三階</div>
-              </div>
-            </div>
-
-            <div className="bg-gray-900 p-4 rounded border-l-4 border-blue-600">
-              <div className="font-bold">ADA 逃生艙</div>
-              <div className="text-xs text-gray-500 mt-1">目前 ADA：{gameState.ada.toLocaleString()}</div>
-              <div className="mt-2 text-xs space-y-1">
-                <div className={inputs.adaBtcRatio >= 0.000010 ? "text-red-300 font-bold" : ""}>• 0.000010：第一階</div>
-                <div className={inputs.adaBtcRatio >= 0.000013 ? "text-red-300 font-bold" : ""}>• 0.000013：第二階</div>
-              </div>
-            </div>
-
-            <div className="text-xs text-gray-500">
-              *匯率輸入在「每週任務」頁，這裡只做提示顯示。
-            </div>
-          </div>
+        <div className="bg-gray-800 p-5 rounded-xl retro-container text-gray-300">
+          <div className="pixel-font text-purple-300 text-sm mb-2">⚔️ 戰略</div>
+          <div className="text-sm">此頁先保留給你後續擴充。</div>
         </div>
       );
 
       const Constitution = () => (
         <div className="bg-gray-800 p-5 rounded-xl retro-container text-gray-200 space-y-3">
-          <h2 className="pixel-font text-yellow-300 text-sm mb-2">📜 憲法（SOP）</h2>
-          <div className="bg-gray-900 p-4 rounded">
-            <div className="font-bold mb-1">1. 定投紀律</div>
-            <div className="text-sm text-gray-300">恐慌(&lt;20) 全力買進；貪婪(&gt;75) 轉存 U。不做預測，只執行規則。</div>
-          </div>
-          <div className="bg-gray-900 p-4 rounded">
-            <div className="font-bold mb-1">2. 冷錢包鐵律</div>
-            <div className="text-sm text-gray-300">交易所累積滿 <span className="text-red-300 font-bold">0.05 BTC</span> 必須提領。</div>
-          </div>
-          <div className="bg-gray-900 p-4 rounded">
-            <div className="font-bold mb-1">3. 自我契約</div>
-            <div className="text-sm text-gray-400 italic border-l-2 border-gray-700 pl-3">
-              "我不預測市場，我只執行規則。只要活著，時間會帶我到終點。"
-            </div>
+          <div className="pixel-font text-yellow-300 text-sm">📜 憲法</div>
+          <div className="bg-gray-900 p-4 rounded text-sm text-gray-300">
+            恐慌(&lt;20) 全力買進；貪婪(&gt;75) 轉存 U。不做預測，只執行規則。
           </div>
         </div>
       );

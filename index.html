@@ -26,7 +26,7 @@ const { useEffect, useMemo, useRef, useState } = React;
 /* ===== Constants (align with your constitution) ===== */
 const GOAL_BTC = 3.0;
 const TARGET_DATE = new Date("2030-12-31T00:00:00+08:00").getTime();
-const SAVE_KEY = "p2030_full_ui_v1";
+const SAVE_KEY = "p2030_full_ui_autofill_200w_v1";
 
 const PART = 60;
 const MONTH_PARTS = 3;
@@ -126,7 +126,8 @@ function App(){
     adaBtcRatio: 0.000008,
     athDrawdownPct: 0,
     below200w: 0,
-    reboundPct: 0
+    reboundPct: 0,
+    ma200w: 0
   });
 
   // modal input refs for ETH stage 1/2 (avoid iOS prompt issues)
@@ -135,7 +136,7 @@ function App(){
 
   const addLog = (msg, type="info") => {
     const log = { id: Date.now() + Math.random(), date: todayMMDD(), msg, type };
-    setState(prev => ({ ...prev, logs: [log, ...prev.logs].slice(0, 160) }));
+    setState(prev => ({ ...prev, logs: [log, ...prev.logs].slice(0, 200) }));
   };
 
   /* ===== Load/Save ===== */
@@ -179,40 +180,69 @@ function App(){
     return stableTotal / portfolioUsdApprox * 100;
   }, [stableTotal, portfolioUsdApprox]);
 
-  /* ===== Autofill: cache/retry/fallback ===== */
+  /* ===== Autofill: BTC/FNG + ETH/BTC/ADA/BTC + 200W MA + below200w ===== */
   const autofillFromApis = async () => {
-    const CACHE_KEY = "p2030_autofill_cache_v4";
+    const CACHE_KEY = "p2030_autofill_cache_v6";
+    const MA_KEY = "p2030_ma200w_cache_v2";
     const now = Date.now();
 
-    const readCache = () => {
+    const readCache = (key) => {
       try {
-        const raw = localStorage.getItem(CACHE_KEY);
+        const raw = localStorage.getItem(key);
         if (!raw) return null;
         const obj = JSON.parse(raw);
         if (!obj || !obj.ts) return null;
         return obj;
       } catch { return null; }
     };
-
-    const writeCache = (btc, fng) => {
-      try { localStorage.setItem(CACHE_KEY, JSON.stringify({ ts: now, btc, fng })); } catch {}
+    const writeCache = (key, payload) => {
+      try { localStorage.setItem(key, JSON.stringify({ ts: now, ...payload })); } catch {}
     };
 
-    const applyValues = (btcUsd, fng) => {
-      const f = clamp(fng, 0, 100);
-      setUi(prev => ({ ...prev, btcPrice: btcUsd, fngIndex: f }));
-      draftRef.current.btcPrice = String(btcUsd);
-      draftRef.current.fngIndex = String(f);
-      const btcEl = document.getElementById("btcPrice");
-      if (btcEl) btcEl.value = draftRef.current.btcPrice;
-      const fngEl = document.getElementById("fngIndex");
-      if (fngEl) fngEl.value = draftRef.current.fngIndex;
+    const setInputValue = (id, val) => {
+      const el = document.getElementById(id);
+      if (el) el.value = String(val);
     };
 
-    const cache = readCache();
-    if (cache && (now - cache.ts) < 60_000 && cache.btc && (cache.fng || cache.fng === 0)) {
-      applyValues(cache.btc, cache.fng);
-      addLog(`自動帶入（快取）：BTC≈${cache.btc}、FNG=${cache.fng}`, "system");
+    const apply = (p) => {
+      // p: { btcUsd, fng, ethBtc, adaBtc, ma200w, below200w }
+      if (p.btcUsd > 0) {
+        draftRef.current.btcPrice = String(p.btcUsd);
+        setInputValue("btcPrice", p.btcUsd);
+      }
+      if (Number.isFinite(p.fng)) {
+        const f = clamp(p.fng, 0, 100);
+        draftRef.current.fngIndex = String(f);
+        setInputValue("fngIndex", f);
+      }
+      if (p.ethBtc > 0) {
+        draftRef.current.ethBtcRatio = String(p.ethBtc);
+        setInputValue("ethBtcRatio", p.ethBtc);
+      }
+      if (p.adaBtc > 0) {
+        draftRef.current.adaBtcRatio = String(p.adaBtc);
+        setInputValue("adaBtcRatio", p.adaBtc);
+      }
+      if (typeof p.below200w === "number") {
+        draftRef.current.below200w = String(p.below200w);
+      }
+
+      setUi(prev => ({
+        ...prev,
+        ...(p.btcUsd > 0 ? { btcPrice: p.btcUsd } : {}),
+        ...(Number.isFinite(p.fng) ? { fngIndex: clamp(p.fng, 0, 100) } : {}),
+        ...(p.ethBtc > 0 ? { ethBtcRatio: p.ethBtc } : {}),
+        ...(p.adaBtc > 0 ? { adaBtcRatio: p.adaBtc } : {}),
+        ...(Number.isFinite(p.ma200w) && p.ma200w > 0 ? { ma200w: p.ma200w } : {}),
+        ...(typeof p.below200w === "number" ? { below200w: p.below200w } : {})
+      }));
+    };
+
+    // 60s cache for main autofill
+    const cache = readCache(CACHE_KEY);
+    if (cache && (now - cache.ts) < 60_000) {
+      apply(cache);
+      addLog(`自動帶入（快取）：BTC≈${cache.btcUsd || "?"}｜FNG=${cache.fng ?? "?"}`, "system");
       return;
     }
 
@@ -236,117 +266,72 @@ function App(){
     };
 
     try{
-      addLog("自動抓取中…（重試/備援）", "system");
+      addLog("自動抓取中…（BTC/FNG/匯率/200W）", "system");
 
-      // FNG
+      // 1) FNG
       const fngJson = await withRetry(() =>
         fetchJson("https://api.alternative.me/fng/?limit=1&format=json", { timeoutMs: 6500 })
       );
       const fng = clamp(parseInt(fngJson?.data?.[0]?.value ?? "0", 10), 0, 100);
 
-      // BTC price (CoinGecko -> CryptoCompare)
-      let btcUsd = 0;
-      try{
-        const pJson = await withRetry(() =>
-          fetchJson("https://api.coingecko.com/api/v3/simple/price?ids=bitcoin&vs_currencies=usd", { timeoutMs: 6500 })
-        );
-        btcUsd = Math.round(pJson?.bitcoin?.usd ?? 0);
-      }catch{
-        const ccJson = await withRetry(() =>
-          fetchJson("https://min-api.cryptocompare.com/data/price?fsym=BTC&tsyms=USD", { timeoutMs: 6500 })
-        );
-        btcUsd = Math.round(ccJson?.USD ?? 0);
+      // 2) Prices BTC/ETH/ADA in one call
+      const prices = await withRetry(() =>
+        fetchJson("https://api.coingecko.com/api/v3/simple/price?ids=bitcoin,ethereum,cardano&vs_currencies=usd", { timeoutMs: 6500 })
+      );
+      const btcUsd = Math.round(prices?.bitcoin?.usd ?? 0);
+      const ethUsd = Number(prices?.ethereum?.usd ?? 0);
+      const adaUsd = Number(prices?.cardano?.usd ?? 0);
+
+      if(!(btcUsd > 0)) throw new Error("BTC price invalid");
+
+      // 3) Ratios
+      const ethBtc = (btcUsd > 0 && ethUsd > 0) ? (ethUsd / btcUsd) : 0;
+      const adaBtc = (btcUsd > 0 && adaUsd > 0) ? (adaUsd / btcUsd) : 0;
+
+      // 4) 200W MA (approx): average of 1400 daily prices; cache 6 hours
+      let ma200w = ui.ma200w || 0;
+      const maCache = readCache(MA_KEY);
+      if (maCache && (now - maCache.ts) < 6 * 60 * 60 * 1000 && maCache.ma200w > 0) {
+        ma200w = maCache.ma200w;
+      } else {
+        try{
+          const chart = await withRetry(() =>
+            fetchJson("https://api.coingecko.com/api/v3/coins/bitcoin/market_chart?vs_currency=usd&days=1400&interval=daily", { timeoutMs: 9000 })
+          );
+          const arr = chart?.prices || [];
+          if (arr.length > 200) {
+            const sum = arr.reduce((s, p) => s + (Number(p?.[1]) || 0), 0);
+            const avg = sum / arr.length;
+            if (Number.isFinite(avg) && avg > 0) {
+              ma200w = avg;
+              writeCache(MA_KEY, { ma200w: avg });
+            }
+          }
+        }catch(_e){
+          // ignore MA fetch failure
+        }
       }
 
-      if(!(btcUsd > 0)) throw new Error("BTC invalid");
+      const below200w = (btcUsd > 0 && ma200w > 0 && btcUsd < ma200w) ? 1 : 0;
 
-      writeCache(btcUsd, fng);
-      applyValues(btcUsd, fng);
+      const payload = { btcUsd, fng, ethBtc, adaBtc, ma200w, below200w };
+      writeCache(CACHE_KEY, payload);
+      apply(payload);
 
-      addLog(`自動帶入成功：BTC≈${btcUsd}、FNG=${fng}`, "success");
-      addLog("來源：FNG=Alternative.me；BTC=CoinGecko（失敗→CryptoCompare）", "system");
+      addLog(`自動帶入成功：BTC≈${btcUsd}｜FNG=${fng}｜ETH/BTC≈${ethBtc?ethBtc.toFixed(5):"?"}｜ADA/BTC≈${adaBtc?adaBtc.toFixed(8):"?"}`, "success");
+      if (ma200w > 0) addLog(`200W≈${Math.round(ma200w)}｜跌破200W=${below200w ? "ON" : "OFF"}`, "system");
+
     }catch(e){
       console.error(e);
-      const last = readCache();
-      if(last && last.btc && (last.fng || last.fng === 0)){
-        applyValues(last.btc, last.fng);
-        addLog("自動抓取失敗 → 已套用上次成功快取值", "warning");
-        setModal({ mode:"info", title:"自動抓取失敗（已用快取）", body:"目前網路/API 可能限流。已使用上次成功值，你仍可手動更新。" });
-        return;
-      }
       addLog("自動抓取失敗：請稍後重試或手動輸入", "warning");
       setModal({ mode:"info", title:"自動抓取失敗", body:"可能是網路或 API 限流。稍後再按一次，或手動輸入。" });
     }
   };
 
-  // 進 App 自動抓一次（如果你不想，可以之後移除）
+  // Auto-fetch once on open (optional)
   useEffect(() => { autofillFromApis(); }, []); // eslint-disable-line
 
-  /* ===== UI components ===== */
-  const Chip = ({active, children, onClick}) => (
-    React.createElement("button", {
-      onClick,
-      className: "px-3 py-2 rounded-xl text-sm font-semibold " + (active ? "bg-emerald-600 text-white" : "bg-slate-800 text-slate-300")
-    }, children)
-  );
-
-  const Field = ({label, name, id, inputMode="decimal", placeholder=""}) => (
-    React.createElement("div", { className:"space-y-1" },
-      React.createElement("div", { className:"text-xs text-slate-400" }, label),
-      React.createElement("input", {
-        id: id || undefined,
-        defaultValue: draftRef.current[name],
-        inputMode,
-        placeholder,
-        className:"w-full bg-slate-900 border border-slate-700 rounded-2xl px-4 py-3 text-lg mono focus:outline-none focus:ring-2 focus:ring-emerald-500",
-        onInput: (e)=> { draftRef.current[name] = e.target.value; },
-        onBlur: ()=> {
-          const v = parseNum(draftRef.current[name], NaN);
-          if(Number.isFinite(v)) setUi(prev => ({ ...prev, [name]: v }));
-        },
-        autoCorrect:"off", autoCapitalize:"off", spellCheck:false
-      })
-    )
-  );
-
-  const Toggle01 = ({label, name}) => (
-    React.createElement("div", { className:"flex items-center justify-between bg-slate-900 border border-slate-700 rounded-2xl px-4 py-3" },
-      React.createElement("div", { className:"text-sm text-slate-200" }, label),
-      React.createElement("button", {
-        className: "px-3 py-2 rounded-xl text-xs font-bold " + (Number(ui[name]||0)===1 ? "bg-emerald-600" : "bg-slate-700"),
-        onClick: ()=> {
-          const next = Number(ui[name]||0)===1 ? 0 : 1;
-          setUi(prev => ({ ...prev, [name]: next }));
-          draftRef.current[name] = String(next);
-        }
-      }, Number(ui[name]||0)===1 ? "ON" : "OFF")
-    )
-  );  /* ===== Backup (export/import) ===== */
-  const exportBackup = () => {
-    const payload = { schema:"project2030-backup-v1", exportedAtISO:new Date().toISOString(), state, ui, draft: draftRef.current };
-    setModal({ mode:"export", title:"匯出備份", json: JSON.stringify(payload, null, 2) });
-  };
-
-  const importBackup = (jsonText) => {
-    try{
-      const obj = JSON.parse(jsonText);
-      if(!(obj && obj.schema==="project2030-backup-v1" && obj.state)) throw new Error("bad");
-      setState({ ...initialStateNow(), ...obj.state });
-      if(obj.ui) setUi(prev => ({ ...prev, ...obj.ui }));
-      if(obj.draft) draftRef.current = { ...draftRef.current, ...obj.draft };
-
-      const btcEl = document.getElementById("btcPrice");
-      if(btcEl && draftRef.current.btcPrice) btcEl.value = draftRef.current.btcPrice;
-      const fngEl = document.getElementById("fngIndex");
-      if(fngEl && draftRef.current.fngIndex) fngEl.value = draftRef.current.fngIndex;
-
-      addLog("已匯入備份並覆蓋目前資料。", "success");
-      setModal({ mode:"info", title:"匯入成功", body:"備份已匯入。" });
-    }catch(e){
-      setModal({ mode:"info", title:"匯入失敗", body:"JSON 格式不正確或不是本 App 的備份。" });
-    }
-  };
-
+  /* ===== Backup ===== */
   const copyToClipboard = async (text) => {
     try{
       if(navigator.clipboard && navigator.clipboard.writeText){
@@ -370,6 +355,32 @@ function App(){
     }
   };
 
+  const exportBackup = () => {
+    const payload = { schema:"project2030-backup-v1", exportedAtISO:new Date().toISOString(), state, ui, draft: draftRef.current };
+    setModal({ mode:"export", title:"匯出備份", json: JSON.stringify(payload, null, 2) });
+  };
+
+  const importBackup = (jsonText) => {
+    try{
+      const obj = JSON.parse(jsonText);
+      if(!(obj && obj.schema==="project2030-backup-v1" && obj.state)) throw new Error("bad");
+      setState({ ...initialStateNow(), ...obj.state });
+      if(obj.ui) setUi(prev => ({ ...prev, ...obj.ui }));
+      if(obj.draft) draftRef.current = { ...draftRef.current, ...obj.draft };
+
+      const setVal = (id, v) => { const el = document.getElementById(id); if(el) el.value = String(v); };
+      if(draftRef.current.btcPrice) setVal("btcPrice", draftRef.current.btcPrice);
+      if(draftRef.current.fngIndex) setVal("fngIndex", draftRef.current.fngIndex);
+      if(draftRef.current.ethBtcRatio) setVal("ethBtcRatio", draftRef.current.ethBtcRatio);
+      if(draftRef.current.adaBtcRatio) setVal("adaBtcRatio", draftRef.current.adaBtcRatio);
+
+      addLog("已匯入備份並覆蓋目前資料。", "success");
+      setModal({ mode:"info", title:"匯入成功", body:"備份已匯入。" });
+    }catch(e){
+      setModal({ mode:"info", title:"匯入失敗", body:"JSON 格式不正確或不是本 App 的備份。" });
+    }
+  };
+
   /* ===== Reserve / Reset / Cold wallet ===== */
   const addExtraReserve = () => {
     const add = Math.max(0, Math.floor(parseNum(draftRef.current.extraReserveAdd, 0)));
@@ -388,9 +399,14 @@ function App(){
     const init = initialStateNow();
     setState({ ...init, logs: [] });
     setUi({
-      btcPrice: 90000, fngIndex: 50,
-      ethBtcRatio: 0.050, adaBtcRatio: 0.000008,
-      athDrawdownPct: 0, below200w: 0, reboundPct: 0
+      btcPrice: 90000,
+      fngIndex: 50,
+      ethBtcRatio: 0.050,
+      adaBtcRatio: 0.000008,
+      athDrawdownPct: 0,
+      below200w: 0,
+      reboundPct: 0,
+      ma200w: 0
     });
     draftRef.current = {
       btcPrice:"90000", fngIndex:"50", ethBtcRatio:"0.050", adaBtcRatio:"0.000008",
@@ -594,7 +610,7 @@ function App(){
     const usdtSpent = spendParts * PART;
     const usdtSaved = saveParts * PART;
 
-    // Black swan
+    // Black swan trigger: fng/athDD/below200w
     const athDD = clamp(Number(ui.athDrawdownPct || 0), 0, 100);
     const below200w = Number(ui.below200w || 0) === 1;
     const blackSwanTriggered = (fng < 20) || (athDD >= 30) || below200w;
@@ -706,12 +722,24 @@ DCA 投入：${usdtSpent}U｜存入預備：${usdtSaved}U
           }
         })
       ),
-      React.createElement("button", { onClick: autofillFromApis, className:"w-full bg-slate-700 hover:bg-slate-600 rounded-2xl py-3 font-bold" }, "自動抓取 BTC + 恐貪"),
-      React.createElement(Field, { label:"ETH/BTC 匯率", name:"ethBtcRatio", inputMode:"decimal" }),
-      React.createElement(Field, { label:"ADA/BTC 匯率", name:"adaBtcRatio", inputMode:"decimal" }),
+
+      React.createElement("button", { onClick: autofillFromApis, className:"w-full bg-slate-700 hover:bg-slate-600 rounded-2xl py-3 font-bold" },
+        "自動抓取：BTC + 恐貪 + ETH/ADA 匯率 + 200W"),
+
+      React.createElement(Field, { label:"ETH/BTC 匯率（自動帶入）", name:"ethBtcRatio", id:"ethBtcRatio", inputMode:"decimal" }),
+      React.createElement(Field, { label:"ADA/BTC 匯率（自動帶入）", name:"adaBtcRatio", id:"adaBtcRatio", inputMode:"decimal" }),
+
+      React.createElement("div", { className:"bg-slate-900 border border-slate-700 rounded-2xl p-4 space-y-2" },
+        React.createElement("div", { className:"text-xs text-slate-400" }, "200W MA（自動估算）"),
+        React.createElement("div", { className:"text-sm mono text-slate-200" },
+          ui.ma200w > 0 ? `200W≈${Math.round(ui.ma200w)}｜跌破=${ui.below200w ? "ON" : "OFF"}` : "尚未取得（不影響執行）"
+        )
+      ),
+
       React.createElement(Field, { label:"ATH 回撤 (%)", name:"athDrawdownPct", inputMode:"numeric" }),
-      React.createElement(Toggle01, { label:"BTC 跌破 200W MA（ON=是）", name:"below200w" }),
+      React.createElement(Toggle01, { label:"BTC 跌破 200W MA（自動抓取會更新）", name:"below200w" }),
       React.createElement(Field, { label:"反彈 (%)（>15% 停止黑天鵝）", name:"reboundPct", inputMode:"numeric" }),
+
       React.createElement("button", { onClick: executeWeekly, className:"w-full bg-emerald-600 hover:bg-emerald-700 rounded-2xl py-4 text-lg font-black" }, "執行本週決策")
     )
   );
@@ -720,6 +748,7 @@ DCA 投入：${usdtSpent}U｜存入預備：${usdtSaved}U
     React.createElement("div", { className:"bg-slate-800 rounded-2xl p-5 border border-slate-700 space-y-4" },
       React.createElement("div", { className:"text-lg font-extrabold text-fuchsia-300" }, "🔄 匯率轉換"),
       React.createElement("div", { className:"text-sm text-slate-300" }, `ETH: ${fmt(state.eth,2)}｜ADA: ${Math.floor(state.ada).toLocaleString()}`),
+      React.createElement("div", { className:"text-xs text-slate-400" }, `ETH/BTC=${ui.ethBtcRatio}｜ADA/BTC=${ui.adaBtcRatio}`),
       React.createElement("div", { className:"grid grid-cols-2 gap-2" },
         React.createElement("button", { className:"bg-slate-700 hover:bg-slate-600 rounded-xl py-3 text-sm font-black", onClick:()=>openEthMixedModal(1) }, "ETH 一階"),
         React.createElement("button", { className:"bg-slate-700 hover:bg-slate-600 rounded-xl py-3 text-sm font-black", onClick:()=>openEthMixedModal(2) }, "ETH 二階")
@@ -733,7 +762,8 @@ DCA 投入：${usdtSpent}U｜存入預備：${usdtSaved}U
           executeConvertDirectToBTC("ETH", 12, parseNum(btc, NaN));
         }
       }, "ETH 三階（全換 BTC）"),
-      React.createElement("div", { className:"text-xs text-slate-400" }, "ADA 一/二階請用 prompt 輸入實得 BTC："),
+
+      React.createElement("div", { className:"text-xs text-slate-400" }, "ADA 一/二階（直接換 BTC）"),
       React.createElement("div", { className:"grid grid-cols-2 gap-2" },
         React.createElement("button", {
           className:"bg-slate-700 hover:bg-slate-600 rounded-xl py-3 text-sm font-black",
@@ -785,11 +815,10 @@ DCA 投入：${usdtSpent}U｜存入預備：${usdtSaved}U
     React.createElement("div", { className:"bg-slate-800 rounded-2xl p-5 border border-slate-700 space-y-2" },
       React.createElement("div", { className:"text-lg font-extrabold text-yellow-300" }, "📜 核心憲法（摘要）"),
       React.createElement("div", { className:"text-sm text-slate-300 leading-relaxed space-y-2" },
-        React.createElement("div", null, "1) 每月 180U（3份），每週查看恐貪，只執行規則。"),
-        React.createElement("div", null, "2) A<20：3份買；B：2買1存；C：1買2存；D：0買3存。"),
-        React.createElement("div", null, `3) 長牛保險：>75 連續 ${GREED_WEEKS_FOR_INSURANCE} 週後，1買2存。`),
-        React.createElement("div", null, "4) 冷錢包：交易所累積 ≥0.05 BTC 必提領。"),
-        React.createElement("div", { className:"italic text-slate-400" }, "「我不預測市場，我只執行規則。」")
+        React.createElement("div", null, "每月 180U（3份），每週查看恐貪，只執行規則。"),
+        React.createElement("div", null, "A<20：3份買；B：2買1存；C：1買2存；D：0買3存。"),
+        React.createElement("div", null, `長牛保險：>75 連續 ${GREED_WEEKS_FOR_INSURANCE} 週後，1買2存。`),
+        React.createElement("div", null, "冷錢包：交易所累積 ≥0.05 BTC 必提領。")
       )
     )
   );
@@ -797,11 +826,17 @@ DCA 投入：${usdtSpent}U｜存入預備：${usdtSaved}U
   const ToolsPage = () => (
     React.createElement("div", { className:"bg-slate-800 rounded-2xl p-5 border border-slate-700 space-y-3" },
       React.createElement("div", { className:"text-lg font-extrabold text-sky-300" }, "🧰 備份/工具"),
-      React.createElement("div", { className:"text-sm text-slate-300" }, "資料存在本機，不會自動同步到電腦；用『匯出/匯入』即可跨裝置。")
+      React.createElement("div", { className:"text-sm text-slate-300" }, "資料存在本機；用『匯出/匯入』可跨裝置。")
     )
   );
 
   /* ===== Main Render ===== */
+  const Chip = ({active, children, onClick}) => (
+    React.createElement("button", { onClick,
+      className: "px-3 py-2 rounded-xl text-sm font-semibold " + (active ? "bg-emerald-600 text-white" : "bg-slate-800 text-slate-300")
+    }, children)
+  );
+
   return React.createElement("div", { className:"min-h-screen pb-safe" },
     React.createElement("div", { className:"sticky top-0 z-10 bg-slate-950/90 backdrop-blur border-b border-slate-800 px-4 py-3" },
       React.createElement("div", { className:"flex items-center justify-between text-xs text-slate-400 mono mb-2" },

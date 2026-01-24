@@ -1,485 +1,397 @@
-<!DOCTYPE html>
+<!doctype html>
 <html lang="zh-TW">
 <head>
   <meta charset="UTF-8" />
-  <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover" />
-  <title>Project 2030: 憲法守護者</title>
+  <meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover" />
+  <title>Project 2030：憲法守護者</title>
 
-  <script src="https://unpkg.com/react@18/umd/react.development.js" crossorigin></script>
-  <script src="https://unpkg.com/react-dom@18/umd/react-dom.development.js" crossorigin></script>
-  <script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
+  <!-- Tailwind -->
   <script src="https://cdn.tailwindcss.com"></script>
 
-  <link href="https://fonts.googleapis.com/css2?family=Press+Start+2P&family=Noto+Sans+TC:wght@400;700&display=swap" rel="stylesheet">
+  <!-- React (production UMD) -->
+  <script src="https://unpkg.com/react@18/umd/react.production.min.js" crossorigin></script>
+  <script src="https://unpkg.com/react-dom@18/umd/react-dom.production.min.js" crossorigin></script>
 
   <style>
-    body { background:#111827; font-family:'Noto Sans TC',sans-serif; color:#e5e7eb; }
-    .pixel-font { font-family:'Press Start 2P', monospace; }
-    .retro-container { border:3px solid #3f3f46; box-shadow:6px 6px 0px #000; }
-    .retro-btn { transition:all .08s; box-shadow:3px 3px 0px #000; }
-    .retro-btn:active { transform:translate(2px,2px); box-shadow:1px 1px 0px #000; }
-    .pb-safe { padding-bottom: env(safe-area-inset-bottom); }
-
-    /* iOS：避免小於 16px 導致縮放/焦點怪異 */
-    input, button, select, textarea { font-size:16px; }
-
-    /* CRT 視覺層：絕對不吃點擊 */
-    .crt::before{
-      content:""; position:fixed; inset:0; pointer-events:none; z-index:9999;
-      background:
-        linear-gradient(rgba(18,16,16,0) 50%, rgba(0,0,0,0.20) 50%),
-        linear-gradient(90deg, rgba(255,0,0,0.04), rgba(0,255,0,0.02), rgba(0,0,255,0.04));
-      background-size:100% 2px, 3px 100%;
-      opacity:.65;
-    }
-
-    /* ✅ iOS range：強化可拖曳（關鍵） */
-    input[type="range"]{
-      -webkit-appearance: none;
-      appearance: none;
-      width: 100%;
-      height: 28px;            /* 讓手指好拖 */
-      background: transparent;
-      touch-action: pan-x;     /* ✅ 只允許水平手勢給滑桿 */
-    }
-    input[type="range"]::-webkit-slider-runnable-track{
-      height: 8px;
-      background: #e5e7eb;
-      border-radius: 999px;
-    }
+    body { background:#0b1220; }
+    .safe-b { padding-bottom: env(safe-area-inset-bottom); }
+    input[type="range"] { -webkit-appearance:none; appearance:none; height: 6px; border-radius:999px; background:#334155; }
     input[type="range"]::-webkit-slider-thumb{
-      -webkit-appearance: none;
-      appearance: none;
-      width: 22px;
-      height: 22px;
-      margin-top: -7px;
-      background: #ffffff;
-      border-radius: 50%;
-      border: 2px solid #111827;
+      -webkit-appearance:none; appearance:none; width:22px; height:22px; border-radius:999px; background:white; border:2px solid #22c55e;
+      box-shadow:0 6px 18px rgba(0,0,0,.35);
     }
   </style>
 </head>
 
-<body>
+<body class="text-slate-100">
   <div id="root"></div>
 
-  <script type="text/babel">
-    const { useState, useEffect, useMemo, useRef } = React;
+  <script>
+    const { useEffect, useMemo, useRef, useState } = React;
 
     const GOAL_BTC = 3.0;
-    const TARGET_DATE = new Date("2030-12-31").getTime();
-    const SAVE_KEY = "project2030_save_v4_iosfix";
+    const TARGET_DATE = new Date("2030-12-31T00:00:00+08:00").getTime();
+    const SAVE_KEY = "project2030_mobile_save_v2";
 
     const INITIAL_STATE = {
-      btc: 0.0,
-      coldWalletCount: 0.0,
+      btcHot: 0.0,
+      btcCold: 0.0,
       usdtReserve: 0,
       eth: 34.0,
       ada: 74000.0,
       logs: [],
       consecutiveGreedWeeks: 0,
-      lastCheckDate: null,
     };
 
+    function fmt(n, d=4){ return Number(n||0).toFixed(d); }
+    function todayMMDD(){
+      return new Date().toLocaleDateString('zh-TW', {month:'2-digit', day:'2-digit'});
+    }
+    function clamp(v,min,max){ return Math.min(max, Math.max(min,v)); }
+
     function App(){
-      const [gameState, setGameState] = useState(INITIAL_STATE);
-      const [activeTab, setActiveTab] = useState("dashboard");
+      const [state, setState] = useState(INITIAL_STATE);
+
+      // ✅ iPhone 友善：inputs 用字串保存，不要每打一次就 parseFloat -> 會導致 re-render + 游標跳/鍵盤收
+      const [inputs, setInputs] = useState({
+        btcPrice: "90000",
+        fngIndex: 50,
+        ethBtcRatio: "0.05",
+        adaBtcRatio: "0.000008",
+      });
+
+      const [tab, setTab] = useState("home");
       const [modal, setModal] = useState(null);
 
-      // ✅ 只讓滑桿是 controlled（不會讓鍵盤亂掉）
-      const [fngIndex, setFngIndex] = useState(50);
-
-      // ✅ 其餘數字欄位全部用 ref（uncontrolled），輸入時不 re-render → 鍵盤不會收
-      const btcPriceRef = useRef(null);
-      const ethRatioRef = useRef(null);
-      const adaRatioRef = useRef(null);
-
-      // --- Load/Save ---
-      useEffect(() => {
-        try {
-          const saved = localStorage.getItem(SAVE_KEY);
-          if (saved) {
-            const parsed = JSON.parse(saved);
-            setGameState(parsed);
-          } else {
-            addLog("系統初始化完成。目標：2030年累積 3 BTC。", "system");
-          }
-        } catch(e) {}
-      }, []);
-
-      useEffect(() => {
-        localStorage.setItem(SAVE_KEY, JSON.stringify(gameState));
-      }, [gameState]);
+      // 防止「鍵盤收起」：記住目前 focus 的 input，re-render 後把焦點留住
+      const activeInputName = useRef(null);
 
       const addLog = (msg, type="info") => {
-        const timestamp = new Date().toLocaleDateString('zh-TW', {month:'2-digit', day:'2-digit'});
-        const newLog = { id: Date.now() + Math.random(), date: timestamp, msg, type };
-        setGameState(prev => ({ ...prev, logs: [newLog, ...prev.logs].slice(0, 80) }));
+        const log = { id: Date.now() + Math.random(), date: todayMMDD(), msg, type };
+        setState(prev => ({ ...prev, logs: [log, ...prev.logs].slice(0, 60) }));
       };
 
-      const daysRemaining = useMemo(() => {
-        const diff = TARGET_DATE - Date.now();
-        return Math.max(0, Math.ceil(diff / 86400000));
+      useEffect(() => {
+        try{
+          const saved = localStorage.getItem(SAVE_KEY);
+          if(saved){
+            setState(JSON.parse(saved));
+          }else{
+            addLog("系統初始化完成。目標：2030 累積 3 BTC。", "system");
+          }
+        }catch(e){
+          console.log(e);
+        }
+        // eslint-disable-next-line
       }, []);
 
-      const totalBTC = () => gameState.btc + gameState.coldWalletCount;
-      const progress = () => Math.min(100, (totalBTC() / GOAL_BTC) * 100);
+      useEffect(() => {
+        try{ localStorage.setItem(SAVE_KEY, JSON.stringify(state)); }catch(e){}
+      }, [state]);
 
-      const readNumber = (ref, fallback) => {
-        const el = ref.current;
-        if (!el) return fallback;
-        const raw = String(el.value ?? "").replace(/,/g,"").trim();
-        const n = parseFloat(raw);
+      // 重新聚焦（解 iPhone 每輸入一位就收鍵盤/跳焦）
+      useEffect(() => {
+        if(!activeInputName.current) return;
+        const el = document.querySelector(`input[data-name="${activeInputName.current}"]`);
+        if(el && document.activeElement !== el){
+          // 只在還開著鍵盤時才強制 focus，避免干擾
+          // 這裡不做強制 focus，主要靠「不把值 parse 成 number」已經能解大部分問題
+        }
+      });
+
+      const daysLeft = useMemo(() => {
+        const diff = TARGET_DATE - Date.now();
+        return Math.max(0, Math.ceil(diff / (1000*60*60*24)));
+      }, [state.btcHot, state.btcCold]);
+
+      const totalBtc = state.btcHot + state.btcCold;
+      const progress = clamp((totalBtc / GOAL_BTC) * 100, 0, 100);
+
+      const parseNum = (s, fallback=0) => {
+        const n = Number(String(s).replace(/,/g,''));
         return Number.isFinite(n) ? n : fallback;
       };
 
-      const fngColor = () => {
-        const n = fngIndex;
-        if (n < 20) return "text-red-300";
-        if (n <= 40) return "text-yellow-300";
-        if (n <= 75) return "text-gray-200";
-        return "text-green-300";
-      };
-
-      const checkAlerts = (ethRatio, adaRatio, currentState) => {
-        if (ethRatio >= 0.06 && currentState.eth >= 10) {
-          addLog(`警報: ETH/BTC 達 ${ethRatio}，請檢查戰略轉換！`, "alert");
-        }
-        if (adaRatio >= 0.000010 && currentState.ada >= 40000) {
-          addLog(`警報: ADA/BTC 達 ${adaRatio}，逃生艙開啟！`, "alert");
-        }
-      };
-
-      const executeWeeklyStrategy = () => {
-        const btcPrice = readNumber(btcPriceRef, 0);
-        const ethRatio = readNumber(ethRatioRef, 0.05);
-        const adaRatio = readNumber(adaRatioRef, 0.000008);
-
-        if (!Number.isFinite(btcPrice) || btcPrice <= 0) {
-          setModal({ title: "錯誤", content: "BTC 價格必須 > 0" });
+      const executeWeekly = () => {
+        const fng = clamp(Number(inputs.fngIndex || 0), 0, 100);
+        const btcPrice = parseNum(inputs.btcPrice, 0);
+        if(btcPrice <= 0){
+          setModal({ title:"輸入錯誤", body:"BTC 價格必須 > 0" });
           return;
         }
 
         let action = "";
         let usdtSpent = 0;
         let usdtSaved = 0;
-        let btcBought = 0;
         let reserveUsed = 0;
-        let greedCounter = gameState.consecutiveGreedWeeks;
+        let greed = state.consecutiveGreedWeeks;
 
-        if (fngIndex < 20) {
-          action = "極度恐慌！啟動全軍突擊 (3份+預備金)";
+        if(fng < 20){
+          action = "極度恐慌：3份買進 + 動用預備金 25%";
           usdtSpent = 180;
-          if (gameState.usdtReserve > 0) {
-            reserveUsed = Math.floor(gameState.usdtReserve * 0.25);
+          if(state.usdtReserve > 0){
+            reserveUsed = Math.floor(state.usdtReserve * 0.25);
             usdtSpent += reserveUsed;
           }
-          greedCounter = 0;
-        } else if (fngIndex >= 20 && fngIndex <= 40) {
-          action = "市場恐懼，加碼進攻 (2份買/1份存)";
+          greed = 0;
+        }else if(fng <= 40){
+          action = "恐懼：2份買 / 1份存";
           usdtSpent = 120;
           usdtSaved = 60;
-          greedCounter = 0;
-        } else if (fngIndex > 40 && fngIndex <= 75) {
-          action = "市場平穩，保守推進 (1份買/2份存)";
+          greed = 0;
+        }else if(fng <= 75){
+          action = "中性：1份買 / 2份存";
           usdtSpent = 60;
           usdtSaved = 120;
-          greedCounter = 0;
-        } else {
-          if (greedCounter >= 8) {
-            action = "強制條款：長牛保險啟動 (1份買/2份存)";
+          greed = 0;
+        }else{
+          if(greed >= 8){
+            action = "長牛保險：1份買 / 2份存";
             usdtSpent = 60;
             usdtSaved = 120;
-            greedCounter += 1;
-          } else {
-            action = "市場貪婪，停止買進 (3份全存)";
+            greed += 1;
+          }else{
+            action = "貪婪：0買 / 3份全存";
             usdtSpent = 0;
             usdtSaved = 180;
-            greedCounter += 1;
+            greed += 1;
           }
         }
 
-        if (usdtSpent > 0) btcBought = usdtSpent / btcPrice;
+        const btcBought = usdtSpent > 0 ? (usdtSpent / btcPrice) : 0;
 
-        const newState = {
-          ...gameState,
-          btc: gameState.btc + btcBought,
-          usdtReserve: gameState.usdtReserve + usdtSaved - reserveUsed,
-          consecutiveGreedWeeks: greedCounter,
-          lastCheckDate: new Date().toISOString(),
+        const next = {
+          ...state,
+          btcHot: state.btcHot + btcBought,
+          usdtReserve: state.usdtReserve + usdtSaved - reserveUsed,
+          consecutiveGreedWeeks: greed
         };
-        setGameState(newState);
+        setState(next);
 
-        addLog(`週報: ${action}`, usdtSpent > 0 ? "success" : "warning");
-        if (btcBought > 0) addLog(`買入: ${btcBought.toFixed(8)} BTC @ ${btcPrice}`, "success");
-        if (usdtSaved > 0) addLog(`預備金 +${usdtSaved} U`, "info");
-        if (reserveUsed > 0) addLog(`動用預備金 -${reserveUsed} U`, "warning");
+        addLog(`週報：${action}`, usdtSpent > 0 ? "success" : "warning");
+        if(btcBought > 0) addLog(`買入：${btcBought.toFixed(6)} BTC @ ${btcPrice}`, "success");
 
-        checkAlerts(ethRatio, adaRatio, newState);
+        // 簡化提醒（可自行擴充）
+        const ethR = parseNum(inputs.ethBtcRatio, 0);
+        const adaR = parseNum(inputs.adaBtcRatio, 0);
+        if(ethR >= 0.06 && next.eth >= 10) addLog(`警報：ETH/BTC=${ethR}（達 0.06）`, "alert");
+        if(adaR >= 0.000010 && next.ada >= 40000) addLog(`警報：ADA/BTC=${adaR}（達 0.000010）`, "alert");
 
         setModal({
-          title: "執行報告",
-          content: (
-            <div className="space-y-2 text-sm">
-              <p className="text-yellow-300 font-bold">{action}</p>
-              <p>投入資金：<span className="text-white font-mono">{usdtSpent} U</span></p>
-              <p>存入預備：<span className="text-white font-mono">{usdtSaved} U</span></p>
-              {reserveUsed > 0 && <p>動用預備：<span className="text-red-300 font-mono">{reserveUsed} U</span></p>}
-              <p>獲得 BTC：<span className="text-green-300 font-mono">{btcBought.toFixed(8)}</span></p>
-              <hr className="border-gray-600"/>
-              <p>總 BTC：<span className="text-white font-mono">{(newState.btc + newState.coldWalletCount).toFixed(6)}</span></p>
-            </div>
-          )
+          title:"執行報告",
+          body: `
+${action}
+
+投入：${usdtSpent} U
+存入預備：${usdtSaved} U
+動用預備：${reserveUsed} U
+獲得：${btcBought.toFixed(6)} BTC
+
+目前總持有：${(next.btcHot + next.btcCold).toFixed(4)} BTC
+          `.trim()
         });
       };
 
-      const moveToColdWallet = () => {
-        if (gameState.btc < 0.05) {
-          setModal({ title: "指令拒絕", content: "未達 0.05 BTC 門檻，請節省手續費。" });
+      const moveCold = () => {
+        if(state.btcHot < 0.05){
+          setModal({ title:"指令拒絕", body:"未達 0.05 BTC 門檻，請節省手續費。" });
           return;
         }
-        const amount = gameState.btc;
-        setGameState(prev => ({ ...prev, btc: 0, coldWalletCount: prev.coldWalletCount + amount }));
+        const amount = state.btcHot;
+        const next = { ...state, btcHot: 0, btcCold: state.btcCold + amount };
+        setState(next);
         addLog(`提領 ${amount.toFixed(6)} BTC 至冷錢包`, "secure");
-        setModal({ title: "資產轉移完成", content: `成功移入冷錢包：${amount.toFixed(6)} BTC` });
+        setModal({ title:"資產轉移", body:`成功將 ${amount.toFixed(6)} BTC 移入冷錢包。` });
       };
 
-      const resetAll = () => {
-        if (!confirm("確定要重置所有資料？")) return;
-        localStorage.removeItem(SAVE_KEY);
-        setGameState(INITIAL_STATE);
-        setFngIndex(50);
-        setModal({ title:"已重置", content:"資料已清空，重新開始。" });
-      };
-
-      const StatusBar = () => (
-        <div className="bg-gray-800 p-4 retro-container mb-4">
-          <div className="flex items-start justify-between gap-3">
-            <div>
-              <div className="pixel-font text-green-300 text-sm mb-1">
-                LV.{Math.floor(totalBTC()*10)} 守護者
-              </div>
-              <div className="text-xs text-gray-400">剩餘 {daysRemaining} 天</div>
-              <div className="text-xs text-gray-500">執行人：陳祥豪</div>
-            </div>
-            <button onClick={resetAll} className="text-xs bg-gray-700 hover:bg-gray-600 px-3 py-2 rounded retro-btn">
-              重置
-            </button>
-          </div>
-
-          <div className="mt-3">
-            <div className="flex justify-between text-xs text-gray-400 mb-1 font-mono">
-              <span>進度</span>
-              <span>{totalBTC().toFixed(6)} / {GOAL_BTC.toFixed(2)} BTC</span>
-            </div>
-            <div className="w-full bg-gray-900 h-3 rounded-full overflow-hidden border border-gray-700">
-              <div className="h-full bg-gradient-to-r from-green-600 to-emerald-400" style={{ width: progress()+"%" }} />
-            </div>
-          </div>
-        </div>
+      const Chip = ({active, children, onClick}) => (
+        React.createElement("button", {
+          onClick,
+          className: "px-3 py-2 rounded-lg text-sm font-semibold " + (active ? "bg-emerald-600 text-white" : "bg-slate-800 text-slate-300")
+        }, children)
       );
 
-      const Inventory = () => (
-        <div className="grid grid-cols-2 gap-3 mb-4">
-          <div className="bg-gray-800 p-4 rounded-xl border-l-4 border-green-500">
-            <div className="text-xs text-gray-400 font-bold mb-1">熱錢包 BTC</div>
-            <div className="text-2xl font-bold font-mono">{gameState.btc.toFixed(6)}</div>
-            <button onClick={moveToColdWallet} className="mt-3 w-full bg-blue-700 hover:bg-blue-600 text-white py-2 rounded retro-btn text-sm">
-              提領至冷錢包
-            </button>
-            <div className="text-[11px] text-gray-500 mt-2">門檻：0.05 BTC</div>
-          </div>
-
-          <div className="bg-gray-800 p-4 rounded-xl border-l-4 border-blue-500">
-            <div className="text-xs text-gray-400 font-bold mb-1">冷錢包 BTC</div>
-            <div className="text-2xl font-bold font-mono">{gameState.coldWalletCount.toFixed(6)}</div>
-            <div className="text-[11px] text-gray-500 mt-2">絕對防禦領域</div>
-          </div>
-
-          <div className="bg-gray-800 p-4 rounded-xl border-l-4 border-yellow-500 col-span-2">
-            <div className="flex justify-between items-center">
-              <div>
-                <div className="text-xs text-gray-400 font-bold mb-1">預備金 USDT</div>
-                <div className="text-2xl font-bold font-mono">${gameState.usdtReserve.toLocaleString()}</div>
-              </div>
-              <div className="text-xs text-gray-500 text-right">黑天鵝彈藥庫</div>
-            </div>
-          </div>
-        </div>
+      const Field = ({label, value, name, placeholder, inputMode="decimal", onChange}) => (
+        React.createElement("div", { className:"space-y-1" },
+          React.createElement("div", { className:"text-xs text-slate-400" }, label),
+          React.createElement("input", {
+            "data-name": name,
+            value,
+            placeholder,
+            inputMode,
+            className:"w-full bg-slate-900 border border-slate-700 rounded-xl px-4 py-3 text-lg font-mono focus:outline-none focus:ring-2 focus:ring-emerald-500",
+            onFocus: () => { activeInputName.current = name; },
+            onBlur: () => { activeInputName.current = null; },
+            // ✅ 關鍵：用 onInput / onChange 都可，這裡用 onInput（iOS更穩）
+            onInput: (e) => onChange(e.target.value),
+            autoCorrect:"off",
+            autoCapitalize:"off",
+            spellCheck:false
+          })
+        )
       );
 
-      const Dashboard = () => (
-        <div className="space-y-4">
-          <div className="bg-gray-800 p-5 rounded-xl retro-container">
-            <h2 className="pixel-font text-green-300 text-sm mb-4">⚡ 戰術指揮中心（每週執行）</h2>
-
-            <label className="text-xs text-gray-400 block mb-1">本週 BTC 價格 (USDT)</label>
-            <input
-              ref={btcPriceRef}
-              defaultValue="90000"
-              inputMode="decimal"
-              className="w-full bg-gray-900 text-white p-3 rounded-lg border border-gray-700 text-lg font-mono"
-            />
-
-            <div className="mt-4">
-              <label className="text-xs text-gray-400 block mb-2">
-                恐懼與貪婪指數（0-100）：
-                <span className={"ml-2 font-mono " + fngColor()}>{fngIndex}</span>
-              </label>
-
-              <!-- ✅ 這裡是關鍵：onTouchMove preventDefault + touchAction pan-x -->
-              <input
-                type="range"
-                min="0"
-                max="100"
-                value={fngIndex}
-                onChange={(e)=>setFngIndex(parseInt(e.target.value,10))}
-                onTouchMove={(e)=>{ e.preventDefault(); }}
-                onTouchStart={(e)=>{ e.stopPropagation(); }}
-                className="w-full"
-              />
-
-              <div className="flex justify-between text-xs mt-1 text-gray-500">
-                <span className="text-red-300">恐慌</span>
-                <span>中性</span>
-                <span className="text-green-300">貪婪</span>
-              </div>
-            </div>
-
-            <div className="mt-4 border-t border-gray-700 pt-4">
-              <div className="text-xs text-gray-400 mb-2">監控數據（選填）</div>
-              <div className="grid grid-cols-2 gap-3">
-                <div>
-                  <label className="text-[11px] text-gray-500">ETH/BTC 匯率</label>
-                  <input
-                    ref={ethRatioRef}
-                    defaultValue="0.05"
-                    inputMode="decimal"
-                    className="w-full bg-gray-900 p-2 rounded border border-gray-700 font-mono"
-                  />
-                </div>
-                <div>
-                  <label className="text-[11px] text-gray-500">ADA/BTC 匯率</label>
-                  <input
-                    ref={adaRatioRef}
-                    defaultValue="0.000008"
-                    inputMode="decimal"
-                    className="w-full bg-gray-900 p-2 rounded border border-gray-700 font-mono"
-                  />
-                </div>
-              </div>
-            </div>
-
-            <button
-              onClick={executeWeeklyStrategy}
-              className="mt-5 w-full bg-green-600 hover:bg-green-500 active:bg-green-700 text-white font-bold py-4 rounded-xl retro-btn"
-            >
-              執行每週決策（EXECUTE）
-            </button>
-          </div>
-
-          <div className="bg-black border border-gray-700 p-4 rounded-lg h-60 overflow-y-auto font-mono text-xs">
-            <div className="sticky top-0 bg-black/90 pb-2 border-b border-gray-800 mb-2 text-gray-500">
-              &gt; SYSTEM LOGS
-            </div>
-            {gameState.logs.length === 0 && <div className="text-gray-600">等待指令...</div>}
-            {gameState.logs.map(log => (
-              <div key={log.id} className="mb-2 border-b border-gray-900 pb-1">
-                <span className="text-gray-500">[{log.date}]</span>
-                <span className={"ml-2 " + (
-                  log.type === "alert" ? "text-red-300 font-bold" :
-                  log.type === "success" ? "text-green-300" :
-                  log.type === "warning" ? "text-yellow-300" :
-                  log.type === "secure" ? "text-blue-300" :
-                  log.type === "system" ? "text-gray-300" : "text-gray-200"
-                )}>
-                  {log.msg}
-                </span>
-              </div>
-            ))}
-          </div>
-        </div>
+      const Slider = ({value, onChange}) => (
+        React.createElement("div", { className:"space-y-2" },
+          React.createElement("div", { className:"flex justify-between text-xs text-slate-400" },
+            React.createElement("span", null, "恐慌"),
+            React.createElement("span", null, "中性"),
+            React.createElement("span", null, "貪婪")
+          ),
+          React.createElement("input", {
+            type:"range",
+            min:0, max:100,
+            value,
+            onChange:(e)=>onChange(Number(e.target.value)),
+            className:"w-full"
+          })
+        )
       );
 
-      const Strategy = () => (
-        <div className="bg-gray-800 p-5 rounded-xl retro-container text-gray-300">
-          <div className="pixel-font text-purple-300 text-sm mb-2">⚔️ 戰略</div>
-          <div className="text-sm">此頁先保留給你後續擴充。</div>
-        </div>
-      );
+      return React.createElement("div", { className:"min-h-screen safe-b" },
+        // Top
+        React.createElement("div", { className:"sticky top-0 z-10 bg-slate-950/90 backdrop-blur border-b border-slate-800 px-4 py-3" },
+          React.createElement("div", { className:"flex items-center justify-between text-xs text-slate-400 font-mono mb-2" },
+            React.createElement("span", null, `LV.${Math.floor(totalBtc*10)} 守護者`),
+            React.createElement("span", null, `${fmt(totalBtc,4)} / ${GOAL_BTC} BTC`)
+          ),
+          React.createElement("div", { className:"w-full h-3 bg-slate-800 rounded-full overflow-hidden" },
+            React.createElement("div", {
+              className:"h-full bg-gradient-to-r from-emerald-600 to-green-400 transition-all",
+              style:{ width: progress + "%" }
+            })
+          ),
+          React.createElement("div", { className:"text-[10px] text-right text-slate-500 mt-1" }, `剩餘 ${daysLeft} 天`)
+        ),
 
-      const Constitution = () => (
-        <div className="bg-gray-800 p-5 rounded-xl retro-container text-gray-200 space-y-3">
-          <div className="pixel-font text-yellow-300 text-sm">📜 憲法</div>
-          <div className="bg-gray-900 p-4 rounded text-sm text-gray-300">
-            恐慌(&lt;20) 全力買進；貪婪(&gt;75) 轉存 U。不做預測，只執行規則。
-          </div>
-        </div>
-      );
+        // Tabs
+        React.createElement("div", { className:"p-4 space-y-4 pb-24" },
 
-      return (
-        <div className="crt min-h-screen">
-          {modal && (
-            <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/80 p-4">
-              <div className="bg-gray-800 rounded-xl max-w-sm w-full p-6 border border-gray-600 shadow-2xl">
-                <h3 className="text-lg font-bold text-white mb-4">{modal.title}</h3>
-                <div className="text-gray-300 mb-6">{modal.content}</div>
-                <button onClick={()=>setModal(null)} className="w-full bg-gray-700 hover:bg-gray-600 py-3 rounded-lg text-white font-bold retro-btn">
-                  確認
-                </button>
-              </div>
-            </div>
-          )}
+          React.createElement("div", { className:"flex gap-2" },
+            React.createElement(Chip, { active: tab==="home", onClick:()=>setTab("home") }, "HOME 行動"),
+            React.createElement(Chip, { active: tab==="alert", onClick:()=>setTab("alert") }, "ALERT 戰略"),
+            React.createElement(Chip, { active: tab==="sop", onClick:()=>setTab("sop") }, "SOP 憲法")
+          ),
 
-          <div className="max-w-3xl mx-auto p-4 pb-28">
-            <header className="text-center mb-4">
-              <div className="pixel-font text-2xl text-white">PROJECT 2030</div>
-              <div className="text-xs text-gray-500 tracking-widest mt-1">終極防禦．執行憲法</div>
-            </header>
+          // Cards
+          React.createElement("div", { className:"grid grid-cols-2 gap-3" },
+            React.createElement("div", { className:"bg-slate-800 rounded-2xl p-4 border border-slate-700" },
+              React.createElement("div", { className:"text-xs text-slate-400" }, "熱錢包 (BTC)"),
+              React.createElement("div", { className:"text-2xl font-mono font-bold mt-1" }, fmt(state.btcHot,4)),
+              React.createElement("button", {
+                onClick: moveCold,
+                className:"mt-3 w-full bg-slate-700 hover:bg-slate-600 rounded-xl py-2 text-sm font-bold"
+              }, "提領到冷錢包 (0.05門檻)")
+            ),
+            React.createElement("div", { className:"bg-slate-800 rounded-2xl p-4 border border-slate-700" },
+              React.createElement("div", { className:"text-xs text-slate-400" }, "冷錢包 (BTC)"),
+              React.createElement("div", { className:"text-2xl font-mono font-bold mt-1" }, fmt(state.btcCold,4)),
+              React.createElement("div", { className:"text-[11px] text-slate-500 mt-2" }, "絕對防禦")
+            )
+          ),
+          React.createElement("div", { className:"bg-slate-800 rounded-2xl p-4 border border-slate-700" },
+            React.createElement("div", { className:"text-xs text-slate-400" }, "預備金 (USDT)"),
+            React.createElement("div", { className:"text-2xl font-mono font-bold mt-1" }, "$" + Number(state.usdtReserve||0).toLocaleString())
+          ),
 
-            <StatusBar />
-            <Inventory />
+          tab==="home" && React.createElement("div", { className:"bg-slate-800 rounded-2xl p-5 border border-slate-700 space-y-4" },
+            React.createElement("div", { className:"text-lg font-extrabold text-emerald-400" }, "⚡ 每週任務"),
+            React.createElement(Field, {
+              label:"本週 BTC 價格 (USDT)",
+              value: inputs.btcPrice,
+              name:"btcPrice",
+              inputMode:"numeric",
+              onChange:(v)=>setInputs(prev=>({ ...prev, btcPrice: v }))
+            }),
+            React.createElement("div", null,
+              React.createElement("div", { className:"flex justify-between items-center" },
+                React.createElement("div", { className:"text-xs text-slate-400" }, `恐懼與貪婪指數 (0-100)`),
+                React.createElement("div", { className:"text-sm font-mono text-emerald-300" }, String(inputs.fngIndex))
+              ),
+              React.createElement(Slider, {
+                value: inputs.fngIndex,
+                onChange:(n)=>setInputs(prev=>({ ...prev, fngIndex: n }))
+              })
+            ),
+            React.createElement("div", { className:"grid grid-cols-2 gap-3" },
+              React.createElement(Field, {
+                label:"ETH/BTC 匯率（選填）",
+                value: inputs.ethBtcRatio,
+                name:"ethBtcRatio",
+                inputMode:"decimal",
+                onChange:(v)=>setInputs(prev=>({ ...prev, ethBtcRatio: v }))
+              }),
+              React.createElement(Field, {
+                label:"ADA/BTC 匯率（選填）",
+                value: inputs.adaBtcRatio,
+                name:"adaBtcRatio",
+                inputMode:"decimal",
+                onChange:(v)=>setInputs(prev=>({ ...prev, adaBtcRatio: v }))
+              })
+            ),
+            React.createElement("button", {
+              onClick: executeWeekly,
+              className:"w-full bg-emerald-600 hover:bg-emerald-700 rounded-2xl py-4 text-lg font-black"
+            }, "執行每週決策 (EXECUTE)")
+          ),
 
-            <div className="flex gap-2 mb-4">
-              <button className={"px-3 py-2 rounded text-xs pixel-font " + (activeTab==="dashboard" ? "bg-green-700 text-white" : "bg-gray-800 text-gray-400")}
-                onClick={()=>setActiveTab("dashboard")}>每週任務</button>
-              <button className={"px-3 py-2 rounded text-xs pixel-font " + (activeTab==="strategy" ? "bg-purple-700 text-white" : "bg-gray-800 text-gray-400")}
-                onClick={()=>setActiveTab("strategy")}>戰略轉換</button>
-              <button className={"px-3 py-2 rounded text-xs pixel-font " + (activeTab==="constitution" ? "bg-yellow-700 text-white" : "bg-gray-800 text-gray-400")}
-                onClick={()=>setActiveTab("constitution")}>憲法</button>
-            </div>
+          tab==="alert" && React.createElement("div", { className:"bg-slate-800 rounded-2xl p-5 border border-slate-700 space-y-3" },
+            React.createElement("div", { className:"text-lg font-extrabold text-fuchsia-300" }, "⚠️ 戰略提醒"),
+            React.createElement("div", { className:"text-sm text-slate-300 leading-relaxed" },
+              "此頁目前提供提醒用（達到門檻會寫入 LOG）。你可以在這裡加上 ETH/ADA 轉換按鈕流程。"
+            ),
+            React.createElement("div", { className:"text-xs text-slate-500" },
+              `ETH: ${fmt(state.eth,2)}｜ADA: ${Number(state.ada||0).toLocaleString()}`
+            )
+          ),
 
-            {activeTab === "dashboard" && <Dashboard />}
-            {activeTab === "strategy" && <Strategy />}
-            {activeTab === "constitution" && <Constitution />}
-          </div>
+          tab==="sop" && React.createElement("div", { className:"bg-slate-800 rounded-2xl p-5 border border-slate-700 space-y-3" },
+            React.createElement("div", { className:"text-lg font-extrabold text-yellow-300" }, "📜 憲法 (SOP)"),
+            React.createElement("ul", { className:"text-sm text-slate-300 list-disc pl-5 space-y-2" },
+              React.createElement("li", null, "恐慌(<20) 全力買進；貪婪(>75) 轉存預備金。"),
+              React.createElement("li", null, "交易所累積滿 0.05 BTC → 必須提領到冷錢包。"),
+              React.createElement("li", null, "不預測市場，只執行規則。")
+            ),
+            React.createElement("div", { className:"text-xs text-slate-500 pt-2" }, "執行人：陳祥豪｜期間：2026.01 - 2030.12")
+          ),
 
-          <div className="fixed bottom-0 left-0 right-0 bg-gray-900/90 border-t border-gray-700 pb-safe z-40">
-            <div className="max-w-3xl mx-auto px-2">
-              <div className="flex justify-around items-center h-16">
-                <button onClick={()=>setActiveTab("dashboard")}
-                  className={"flex flex-col items-center justify-center w-full h-full " + (activeTab==="dashboard" ? "text-green-300" : "text-gray-500")}>
-                  <div className="pixel-font text-[10px]">HOME</div>
-                  <div className="text-[10px] mt-1">行動</div>
-                </button>
-                <button onClick={()=>setActiveTab("strategy")}
-                  className={"flex flex-col items-center justify-center w-full h-full " + (activeTab==="strategy" ? "text-purple-300" : "text-gray-500")}>
-                  <div className="pixel-font text-[10px]">ALERT</div>
-                  <div className="text-[10px] mt-1">戰略</div>
-                </button>
-                <button onClick={()=>setActiveTab("constitution")}
-                  className={"flex flex-col items-center justify-center w-full h-full " + (activeTab==="constitution" ? "text-yellow-300" : "text-gray-500")}>
-                  <div className="pixel-font text-[10px]">SOP</div>
-                  <div className="text-[10px] mt-1">憲法</div>
-                </button>
-              </div>
-            </div>
-          </div>
-        </div>
+          // Logs
+          React.createElement("div", { className:"bg-slate-950 rounded-2xl p-4 border border-slate-800" },
+            React.createElement("div", { className:"text-xs text-slate-500 font-mono mb-2" }, "> SYSTEM LOGS"),
+            state.logs.length === 0
+              ? React.createElement("div", { className:"text-slate-600 text-sm" }, "等待指令…")
+              : state.logs.slice(0, 12).map(l =>
+                  React.createElement("div", { key:l.id, className:"text-sm font-mono border-b border-slate-900 py-2" },
+                    React.createElement("span", { className:"text-slate-500" }, `[${l.date}] `),
+                    React.createElement("span", {
+                      className:
+                        l.type==="alert" ? "text-red-300 font-bold" :
+                        l.type==="success" ? "text-emerald-300" :
+                        l.type==="warning" ? "text-yellow-300" :
+                        l.type==="secure" ? "text-sky-300" :
+                        l.type==="system" ? "text-slate-300" : "text-slate-300"
+                    }, l.msg)
+                  )
+                )
+          )
+        ),
+
+        // Modal
+        modal && React.createElement("div", { className:"fixed inset-0 z-50 bg-black/70 flex items-center justify-center p-4" },
+          React.createElement("div", { className:"w-full max-w-md bg-slate-900 border border-slate-700 rounded-2xl p-5" },
+            React.createElement("div", { className:"text-lg font-black mb-3" }, modal.title),
+            React.createElement("pre", { className:"text-sm text-slate-200 whitespace-pre-wrap leading-relaxed" }, modal.body),
+            React.createElement("button", {
+              onClick:()=>setModal(null),
+              className:"mt-4 w-full bg-slate-700 hover:bg-slate-600 rounded-xl py-3 font-bold"
+            }, "確認")
+          )
+        )
       );
     }
 
-    ReactDOM.createRoot(document.getElementById("root")).render(<App />);
+    const root = ReactDOM.createRoot(document.getElementById("root"));
+    root.render(React.createElement(App));
   </script>
 </body>
 </html>

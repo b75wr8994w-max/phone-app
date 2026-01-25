@@ -26,7 +26,7 @@ const { useEffect, useMemo, useRef, useState } = React;
 /* ===== Constants ===== */
 const GOAL_BTC = 3.0;
 const TARGET_DATE = new Date("2030-12-31T00:00:00+08:00").getTime();
-const SAVE_KEY = "p2030_full_app_v99005";
+const SAVE_KEY = "p2030_full_app_v99006";
 
 const PART = 60;
 const MONTH_PARTS = 3;
@@ -986,7 +986,42 @@ DCA 投入：${usdtSpent}U｜存入預備：${usdtSaved}U
 
 const SopPage = () => (
   React.createElement("div", { className:"bg-slate-800 rounded-2xl p-5 border border-slate-700 space-y-4" },
-    React.createElement("div", { className:"text-xl font-black text-yellow-300" }, "📜 核心信條 & 自我契約"),
+
+    React.createElement("div", { className:"flex items-baseline justify-between" },
+      React.createElement("div", { className:"text-xl font-black text-yellow-300" }, "📜 核心信條 & 自我契約"),
+      React.createElement("div", { className:"text-xs text-slate-500 mono" }, "SOP VERSION: 99006")
+    ),
+
+    React.createElement("div", { className:"bg-slate-900 border border-slate-700 rounded-2xl p-4 space-y-2" },
+      React.createElement("div", { className:"text-sm font-bold text-slate-200" }, "核心信條"),
+      React.createElement("ul", { className:"list-disc pl-5 text-sm text-slate-300 space-y-1" },
+        React.createElement("li", null, "我的目標是 BTC 顆數，不是法幣數字。"),
+        React.createElement("li", null, "我不預測市場，我只執行規則。"),
+        React.createElement("li", null, "只要活著（不爆倉、不亂動），時間會帶我到終點。")
+      )
+    ),
+
+    React.createElement("div", { className:"bg-slate-900 border border-slate-700 rounded-2xl p-4 space-y-2" },
+      React.createElement("div", { className:"text-sm font-bold text-slate-200" }, "契約重點（SOP 摘要）"),
+      React.createElement("ul", { className:"list-disc pl-5 text-sm text-slate-300 space-y-1" },
+        React.createElement("li", null, "DCA：每月 180U（3份），每週查看恐貪，只執行規則。"),
+        React.createElement("li", null, "A<20：3份買；B(20-40)：2買1存；C(40-75)：1買2存；D>75：0買3存。"),
+        React.createElement("li", null, `長牛保險：恐貪 > 75 連續 ${GREED_WEEKS_FOR_INSURANCE} 週後，改為 1買2存，避免踏空。`),
+        React.createElement("li", null, "黑天鵝：FNG<20 或 6M ATH回撤≥30% 或 跌破200W → 預備金分4週買入。"),
+        React.createElement("li", null, "停止黑天鵝：買入期間反彈 >15% 立即停止，保留子彈。"),
+        React.createElement("li", null, "冷錢包鐵律：交易所 BTC ≥ 0.05 BTC 必提領。"),
+        React.createElement("li", null, "90天回家：USDT 掛單 90 天未成交 → 週決策時強制市價換回 BTC。")
+      )
+    ),
+
+    React.createElement("div", { className:"bg-slate-900 border border-slate-700 rounded-2xl p-4 space-y-2" },
+      React.createElement("div", { className:"text-sm font-bold text-slate-200" }, "憲法修正條款"),
+      React.createElement("div", { className:"text-sm text-slate-300 leading-relaxed" },
+        "若我在 2030 年前想修改本計畫，必須寫下修改理由並延遲 30 天再執行。"
+      )
+    )
+  )
+);
 
     React.createElement("div", { className:"bg-slate-900 border border-slate-700 rounded-2xl p-4 space-y-2" },
       React.createElement("div", { className:"text-sm font-bold text-slate-200" }, "核心信條"),

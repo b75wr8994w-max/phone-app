@@ -26,7 +26,7 @@ const { useEffect, useMemo, useRef, useState } = React;
 /* ===== Constants ===== */
 const GOAL_BTC = 3.0;
 const TARGET_DATE = new Date("2030-12-31T00:00:00+08:00").getTime();
-const SAVE_KEY = "p2030_full_app_v99005";
+const SAVE_KEY = "p2030_full_app_v99006";
 
 const PART = 60;
 const MONTH_PARTS = 3;
@@ -103,8 +103,7 @@ function initialStateNow(){
       lowPrice: 0
     },
 
-    // {id, createdAtISO, deadlineISO, usdtAmount, refBtcPrice, dropPct, targetPrice, status, btcReceived, closedAtISO, closedReason}
-    pendingOrders: []
+    pendingOrders: [] // buyback orders (USDT)
   };
 }
 
@@ -189,7 +188,7 @@ function App(){
     if (el) el.value = String(val);
   };
 
-  /* ===== Pure-frontend fetch helpers (Safari friendly) ===== */
+  /* ===== Fetch helpers (pure frontend) ===== */
   const parseLooseJson = (text) => {
     const s = String(text || "");
     const i1 = s.indexOf("{");
@@ -198,9 +197,8 @@ function App(){
     if (i1 === -1) i = i2;
     else if (i2 === -1) i = i1;
     else i = Math.min(i1, i2);
-    if (i < 0) throw new Error("JSON not found in response");
-    const sliced = s.slice(i).trim();
-    return JSON.parse(sliced);
+    if (i < 0) throw new Error("JSON not found");
+    return JSON.parse(s.slice(i).trim());
   };
 
   const fetchText = async (url, timeoutMs = 12000) => {
@@ -217,15 +215,10 @@ function App(){
   const jinaUrl = (url) => "https://r.jina.ai/http://" + url.replace(/^https?:\/\//, "");
 
   const fetchJsonSmart = async (url, timeoutMs = 12000) => {
-    // 1) direct
     try { return parseLooseJson(await fetchText(url, timeoutMs)); }
     catch (e1) { addLog(`直連失敗：${String(e1)}`, "warning"); }
-
-    // 2) allorigins
     try { return parseLooseJson(await fetchText(proxyUrl(url), timeoutMs + 4000)); }
     catch (e2) { addLog(`AllOrigins 失敗：${String(e2)}`, "warning"); }
-
-    // 3) jina.ai
     return parseLooseJson(await fetchText(jinaUrl(url), timeoutMs + 6000));
   };
 
@@ -238,7 +231,7 @@ function App(){
     throw last;
   };
 
-  const CACHE_KEY_METRICS = "p2030_metrics_cache_v2";
+  const CACHE_KEY_METRICS = "p2030_metrics_cache_v3";
   const loadMetricsCache = () => { try { return JSON.parse(localStorage.getItem(CACHE_KEY_METRICS) || "null"); } catch { return null; } };
   const saveMetricsCache = (payload) => { try { localStorage.setItem(CACHE_KEY_METRICS, JSON.stringify({ ts: Date.now(), ...payload })); } catch {} };
 
@@ -289,17 +282,15 @@ function App(){
     if (prices.length < 30) throw new Error(`價格不足：${prices.length}`);
     const hi = Math.max(...prices);
     return Math.max(0, ((hi - nowPrice) / hi) * 100);
-  };
-
-  /* ===== autofill (max success + manual friendly) ===== */
+  };  /* ===== autofill (max success + manual friendly) ===== */
   const autofillFromApis = async () => {
     try {
       addLog("自動抓取中…（直連→AllOrigins→Jina）", "system");
 
-      // 60s cache
       const cache = loadMetricsCache();
       if (cache && cache.ts && (Date.now() - cache.ts) < 60_000) {
         const { btcUsd, fng, ethBtc, adaBtc, ma200w, below200w, dd6m } = cache;
+
         if (btcUsd>0){ draftRef.current.btcPrice=String(btcUsd); setInputValue("btcPrice", btcUsd); }
         if (Number.isFinite(fng)){ draftRef.current.fngIndex=String(fng); setInputValue("fngIndex", fng); }
         if (ethBtc>0){ draftRef.current.ethBtcRatio=String(ethBtc); setInputValue("ethBtcRatio", ethBtc); }
@@ -318,7 +309,7 @@ function App(){
           ...(typeof below200w==="number" ? { below200w } : {})
         }));
 
-        addLog("已使用 1 分鐘內快取（避免 Safari 連打失敗）", "system");
+        addLog("已使用 1 分鐘內快取", "system");
         return;
       }
 
@@ -355,7 +346,7 @@ function App(){
       const ethBtc = ethUsd>0 ? ethUsd/btcUsd : 0;
       const adaBtc = adaUsd>0 ? adaUsd/btcUsd : 0;
 
-      // 200W MA (source-aware)
+      // 200W MA
       let ma200w = 0;
       if (src==="cryptocompare"){
         try{ ma200w = await calc200wMA_fromCC(); } catch(e){ addLog(`200W(週線)失敗：${String(e)}`, "warning"); }
@@ -370,7 +361,7 @@ function App(){
       }
       const below200w = (ma200w>0 && btcUsd < ma200w) ? 1 : 0;
 
-      // 6M DD (same-source)
+      // 6M DD
       let dd6m = 0;
       if (src==="cryptocompare"){
         try{ dd6m = await calc6mDD_fromCC(btcUsd); }
@@ -380,7 +371,7 @@ function App(){
         catch(e){ addLog(`6M(CG)失敗：${String(e)}`, "warning"); dd6m = await calc6mDD_fromCC(btcUsd); }
       }
 
-      // Write values (success only)
+      // Write
       draftRef.current.btcPrice=String(btcUsd); setInputValue("btcPrice", btcUsd);
       draftRef.current.fngIndex=String(fng); setInputValue("fngIndex", fng);
       if(ethBtc>0){ draftRef.current.ethBtcRatio=String(ethBtc); setInputValue("ethBtcRatio", ethBtc); }
@@ -399,7 +390,7 @@ function App(){
         below200w: ma200w>0 ? below200w : prev.below200w
       }));
 
-      // Update rebound if black swan active
+      // Rebound update if black swan active
       if (state.blackSwan && state.blackSwan.active){
         const low = state.blackSwan.lowPrice>0 ? state.blackSwan.lowPrice : btcUsd;
         const newLow = Math.min(low, btcUsd);
@@ -410,9 +401,7 @@ function App(){
         setInputValue("reboundPct", rb.toFixed(2));
       }
 
-      // cache
       saveMetricsCache({ btcUsd, fng, ethBtc, adaBtc, ma200w, below200w, dd6m, src });
-
       addLog(`抓取成功(src=${src})｜6M≈${dd6m.toFixed(2)}%｜200W=${ma200w>0?Math.round(ma200w):"?"}`, "success");
     } catch (e) {
       addLog(`自動抓取失敗：${String(e)}`, "warning");
@@ -465,7 +454,9 @@ function App(){
         onClick:()=>{ const next = Number(ui[name]||0)===1 ? 0 : 1; setUi(p=>({ ...p, [name]: next })); draftRef.current[name]=String(next); }
       }, Number(ui[name]||0)===1 ? "ON" : "OFF")
     )
-  );  /* ===== Backup / Tools ===== */
+  );
+
+  /* ===== Backup ===== */
   const copyToClipboard = async (text) => {
     try{
       if(navigator.clipboard && navigator.clipboard.writeText){
@@ -495,19 +486,20 @@ function App(){
       setState({ ...initialStateNow(), ...obj.state });
       if(obj.ui) setUi(prev => ({ ...prev, ...obj.ui }));
       if(obj.draft) draftRef.current = { ...draftRef.current, ...obj.draft };
+
       if(draftRef.current.btcPrice) setInputValue("btcPrice", draftRef.current.btcPrice);
       if(draftRef.current.fngIndex) setInputValue("fngIndex", draftRef.current.fngIndex);
       if(draftRef.current.ethBtcRatio) setInputValue("ethBtcRatio", draftRef.current.ethBtcRatio);
       if(draftRef.current.adaBtcRatio) setInputValue("adaBtcRatio", draftRef.current.adaBtcRatio);
       if(draftRef.current.athDrawdownPct) setInputValue("athDrawdownPct", draftRef.current.athDrawdownPct);
       if(draftRef.current.reboundPct) setInputValue("reboundPct", draftRef.current.reboundPct);
+
       addLog("已匯入備份並覆蓋目前資料。", "success");
       setModal({ mode:"info", title:"匯入成功", body:"備份已匯入。" });
     }catch(e){
       setModal({ mode:"info", title:"匯入失敗", body:"JSON 格式不正確或不是本 App 的備份。" });
     }
-  };
-
+  };  /* ===== Reserve / Reset / Cold wallet ===== */
   const addExtraReserve = () => {
     const add = Math.max(0, Math.floor(parseNum(draftRef.current.extraReserveAdd, 0)));
     if(!(add>0)){ setModal({ mode:"info", title:"輸入錯誤", body:"請輸入要補充的預備金（正整數）" }); return; }
@@ -632,6 +624,7 @@ function App(){
     }
   };
 
+  /* ===== ETH stage modal ===== */
   const openEthMixedModal = (stage) => {
     const need = stage===1 ? ETH_STAGE1 : ETH_STAGE2;
     if(ui.ethBtcRatio < need){
@@ -657,7 +650,9 @@ function App(){
     if(!ok){ setModal({ mode:"info", title:"執行失敗", body:"ETH 不足或資料錯誤。" }); return; }
     executeConvertToUSDTWithOrder(ethToUsdt, usdt, drop);
     setModal({ mode:"info", title:"完成", body:`已完成 ETH 第${stage}階：一半換 BTC + 一半換 USDT 並建立掛單。` });
-  };  /* ===== Weekly Execute ===== */
+  };
+
+  /* ===== Weekly Execute ===== */
   const executeWeekly = () => {
     const btcPrice = Number(ui.btcPrice || 0);
     const fng = clamp(Number(ui.fngIndex || 0), 0, 100);
@@ -833,7 +828,7 @@ DCA 投入：${usdtSpent}U｜存入預備：${usdtSaved}U
     });
   };
 
-  /* ===== Pages ===== */
+  /* ===== UI components ===== */
   const HeaderCards = () => (
     React.createElement("div", { className:"space-y-4" },
       React.createElement("div", { className:"grid grid-cols-2 gap-3" },
@@ -847,6 +842,7 @@ DCA 投入：${usdtSpent}U｜存入預備：${usdtSaved}U
           React.createElement("div", { className:"text-2xl mono font-bold mt-1" }, fmt(state.btcCold,4))
         )
       ),
+
       React.createElement("div", { className:"bg-slate-800 rounded-2xl p-4 border border-slate-700 space-y-3" },
         React.createElement("div", { className:"flex items-start justify-between gap-2" },
           React.createElement("div", null,
@@ -878,7 +874,7 @@ DCA 投入：${usdtSpent}U｜存入預備：${usdtSaved}U
   const HomePage = () => (
     React.createElement("div", { className:"bg-slate-800 rounded-2xl p-5 border border-slate-700 space-y-4" },
       React.createElement("div", { className:"flex items-center justify-between" },
-        React.createElement("div", { className:"text-lg font-extrabold text-emerald-400" }, "⚡ 每週執行（自動抓取 + 手動可改）"),
+        React.createElement("div", { className:"text-lg font-extrabold text-emerald-400" }, "⚡ 每週執行"),
         React.createElement("div", { className:"text-xs text-slate-400 mono" }, `份額 ${state.monthPartsRemaining}/3`)
       ),
       React.createElement(Field, { label:"BTC 價格 (USD≈USDT)", name:"btcPrice", id:"btcPrice", inputMode:"numeric" }),
@@ -908,13 +904,13 @@ DCA 投入：${usdtSpent}U｜存入預備：${usdtSaved}U
       React.createElement(Field, { label:"ADA/BTC 匯率", name:"adaBtcRatio", id:"adaBtcRatio", inputMode:"decimal" }),
       React.createElement(Field, { label:"近6個月 ATH 回撤(%)", name:"athDrawdownPct", id:"athDrawdownPct", inputMode:"decimal" }),
       React.createElement("div", { className:"bg-slate-900 border border-slate-700 rounded-2xl p-4 space-y-2" },
-        React.createElement("div", { className:"text-xs text-slate-400" }, "200W MA（抓不到也可照常執行）"),
+        React.createElement("div", { className:"text-xs text-slate-400" }, "200W MA"),
         React.createElement("div", { className:"text-sm mono text-slate-200" },
-          ui.ma200w > 0 ? `200W≈${Math.round(ui.ma200w)}｜跌破=${ui.below200w ? "ON" : "OFF"}` : "尚未取得（看 Logs）"
+          ui.ma200w > 0 ? `200W≈${Math.round(ui.ma200w)}｜跌破=${ui.below200w ? "ON" : "OFF"}` : "尚未取得（不影響執行）"
         )
       ),
       React.createElement(Toggle01, { label:"BTC 跌破 200W（可手動切）", name:"below200w" }),
-      React.createElement(Field, { label:"反彈(%)（黑天鵝期間自動計算 / 也可手動）", name:"reboundPct", id:"reboundPct", inputMode:"decimal" }),
+      React.createElement(Field, { label:"反彈(%)（黑天鵝期間自動/也可手動）", name:"reboundPct", id:"reboundPct", inputMode:"decimal" }),
       React.createElement("button", { onClick: executeWeekly, className:"w-full bg-emerald-600 hover:bg-emerald-700 rounded-2xl py-4 text-lg font-black" }, "執行本週決策")
     )
   );
@@ -984,13 +980,44 @@ DCA 投入：${usdtSpent}U｜存入預備：${usdtSaved}U
     )
   );
 
+  // ✅ 憲法頁：新增核心信條＋契約重點
   const SopPage = () => (
-    React.createElement("div", { className:"bg-slate-800 rounded-2xl p-5 border border-slate-700 space-y-2" },
-      React.createElement("div", { className:"text-lg font-extrabold text-yellow-300" }, "📜 黑天鵝規則"),
-      React.createElement("div", { className:"text-sm text-slate-300 leading-relaxed space-y-2" },
-        React.createElement("div", null, "觸發：FNG<20 或 6M ATH 回撤≥30% 或 跌破 200W。"),
-        React.createElement("div", null, "方式：預備金分 4 週等額買入。"),
-        React.createElement("div", null, "停止：買入期間反彈 > 15% 立即停止。")
+    React.createElement("div", { className:"bg-slate-800 rounded-2xl p-5 border border-slate-700 space-y-4" },
+      React.createElement("div", { className:"text-xl font-black text-yellow-300" }, "📜 核心信條 & 自我契約"),
+
+      React.createElement("div", { className:"bg-slate-900 border border-slate-700 rounded-2xl p-4 space-y-2" },
+        React.createElement("div", { className:"text-sm font-bold text-slate-200" }, "核心信條"),
+        React.createElement("ul", { className:"list-disc pl-5 text-sm text-slate-300 space-y-1" },
+          React.createElement("li", null, "我的目標是 BTC 顆數，不是法幣數字。"),
+          React.createElement("li", null, "我不預測市場，我只執行規則。"),
+          React.createElement("li", null, "只要活著（不爆倉、不亂動），時間會帶我到終點。")
+        )
+      ),
+
+      React.createElement("div", { className:"bg-slate-900 border border-slate-700 rounded-2xl p-4 space-y-2" },
+        React.createElement("div", { className:"text-sm font-bold text-slate-200" }, "契約重點（SOP 摘要）"),
+        React.createElement("ul", { className:"list-disc pl-5 text-sm text-slate-300 space-y-1" },
+          React.createElement("li", null, "DCA：每月 180U（3份），每週看恐貪只執行規則。"),
+          React.createElement("li", null, "長牛保險：恐貪 > 75 連續 8 週後，改為 1買2存，避免踏空。"),
+          React.createElement("li", null, "黑天鵝：FNG<20 或 6M ATH回撤≥30% 或 跌破200W → 預備金分4週買入。"),
+          React.createElement("li", null, "停止黑天鵝：買入期間反彈 >15% 立即停止，保留子彈。"),
+          React.createElement("li", null, "冷錢包鐵律：交易所 BTC ≥ 0.05 BTC 必提領。"),
+          React.createElement("li", null, "90天回家：ETH→USDT 後，90天未回撤達掛單 → 強制市價換回 BTC。")
+        )
+      ),
+
+      React.createElement("div", { className:"bg-slate-900 border border-slate-700 rounded-2xl p-4 space-y-2" },
+        React.createElement("div", { className:"text-sm font-bold text-slate-200" }, "憲法修正條款"),
+        React.createElement("div", { className:"text-sm text-slate-300 leading-relaxed" },
+          "若我在 2030 年前想修改本計畫，必須寫下修改理由並延遲 30 天再執行。"
+        )
+      ),
+
+      React.createElement("div", { className:"bg-slate-900 border border-slate-700 rounded-2xl p-4 space-y-2" },
+        React.createElement("div", { className:"text-sm font-bold text-slate-200" }, "自我契約（提醒）"),
+        React.createElement("div", { className:"text-sm text-slate-300 italic leading-relaxed" },
+          "「這套系統已包含所有恐懼與貪婪。市場瘋狂時它叫我存錢；市場崩盤時它叫我進攻。」"
+        )
       )
     )
   );

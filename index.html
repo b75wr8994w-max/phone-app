@@ -26,7 +26,7 @@ const { useEffect, useMemo, useRef, useState } = React;
 /* ===== Constants ===== */
 const GOAL_BTC = 3.0;
 const TARGET_DATE = new Date("2030-12-31T00:00:00+08:00").getTime();
-const SAVE_KEY = "p2030_full_app_v99004";
+const SAVE_KEY = "p2030_full_app_v99005";
 
 const PART = 60;
 const MONTH_PARTS = 3;
@@ -83,7 +83,6 @@ function initialStateNow(){
   return {
     btcHot: 0.0,
     btcCold: 0.0,
-
     usdtReserve: 0,
     eth: 34.0,
     ada: 74000.0,
@@ -104,6 +103,7 @@ function initialStateNow(){
       lowPrice: 0
     },
 
+    // {id, createdAtISO, deadlineISO, usdtAmount, refBtcPrice, dropPct, targetPrice, status, btcReceived, closedAtISO, closedReason}
     pendingOrders: []
   };
 }
@@ -210,9 +210,7 @@ function App(){
       const res = await fetch(url, { cache: "no-store", signal: ctrl.signal });
       if (!res.ok) throw new Error(`HTTP ${res.status}`);
       return await res.text();
-    } finally {
-      clearTimeout(t);
-    }
+    } finally { clearTimeout(t); }
   };
 
   const proxyUrl = (url) => "https://api.allorigins.win/raw?url=" + encodeURIComponent(url);
@@ -220,195 +218,173 @@ function App(){
 
   const fetchJsonSmart = async (url, timeoutMs = 12000) => {
     // 1) direct
-    try {
-      const txt = await fetchText(url, timeoutMs);
-      return parseLooseJson(txt);
-    } catch (e1) {
-      addLog(`直連失敗：${String(e1)}`, "warning");
-    }
+    try { return parseLooseJson(await fetchText(url, timeoutMs)); }
+    catch (e1) { addLog(`直連失敗：${String(e1)}`, "warning"); }
 
     // 2) allorigins
-    try {
-      const txt = await fetchText(proxyUrl(url), timeoutMs + 4000);
-      return parseLooseJson(txt);
-    } catch (e2) {
-      addLog(`AllOrigins 失敗：${String(e2)}`, "warning");
-    }
+    try { return parseLooseJson(await fetchText(proxyUrl(url), timeoutMs + 4000)); }
+    catch (e2) { addLog(`AllOrigins 失敗：${String(e2)}`, "warning"); }
 
     // 3) jina.ai
-    const txt = await fetchText(jinaUrl(url), timeoutMs + 6000);
-    return parseLooseJson(txt);
+    return parseLooseJson(await fetchText(jinaUrl(url), timeoutMs + 6000));
   };
 
   const withRetry = async (fn, tries = 3) => {
     let last = null;
     for (let i = 0; i < tries; i++) {
       try { return await fn(); }
-      catch (e) {
-        last = e;
-        await new Promise(r => setTimeout(r, [600, 1400, 2600][i] ?? 2600));
-      }
+      catch (e) { last = e; await new Promise(r => setTimeout(r, [600,1400,2600][i] ?? 2600)); }
     }
     throw last;
   };
 
-  const CACHE_KEY_METRICS = "p2030_metrics_cache_v1";
-  const loadMetricsCache = () => {
-    try { return JSON.parse(localStorage.getItem(CACHE_KEY_METRICS) || "null"); }
-    catch { return null; }
-  };
-  const saveMetricsCache = (payload) => {
-    try { localStorage.setItem(CACHE_KEY_METRICS, JSON.stringify({ ts: Date.now(), ...payload })); }
-    catch {}
-  };
+  const CACHE_KEY_METRICS = "p2030_metrics_cache_v2";
+  const loadMetricsCache = () => { try { return JSON.parse(localStorage.getItem(CACHE_KEY_METRICS) || "null"); } catch { return null; } };
+  const saveMetricsCache = (payload) => { try { localStorage.setItem(CACHE_KEY_METRICS, JSON.stringify({ ts: Date.now(), ...payload })); } catch {} };
 
-  // 200W MA
+  /* ===== Calculators ===== */
   const calc200wMA_fromCC = async () => {
     const cc = await withRetry(() =>
-      fetchJsonSmart("https://min-api.cryptocompare.com/data/v2/histoweek?fsym=BTC&tsym=USD&limit=220", 15000)
+      fetchJsonSmart("https://min-api.cryptocompare.com/data/v2/histoweek?fsym=BTC&tsym=USD&limit=220", 16000)
     );
     if (cc?.Response === "Error") throw new Error(cc?.Message || "CryptoCompare histoweek Error");
     const arr = cc?.Data?.Data || [];
     const closes = arr.map(x => Number(x?.close) || 0).filter(x => x > 0);
-    if (closes.length < 200) throw new Error(`週線資料不足：${closes.length}`);
+    if (closes.length < 200) throw new Error(`週線不足：${closes.length}`);
     const last200 = closes.slice(-200);
-    const ma = last200.reduce((s, x) => s + x, 0) / last200.length;
-    if (!(Number.isFinite(ma) && ma > 0)) throw new Error("MA 計算無效");
+    const ma = last200.reduce((s,x)=>s+x,0) / last200.length;
+    if (!(Number.isFinite(ma) && ma > 0)) throw new Error("MA invalid");
     return ma;
   };
 
   const calc200wMA_fromCG = async () => {
     const cg = await withRetry(() =>
-      fetchJsonSmart("https://api.coingecko.com/api/v3/coins/bitcoin/market_chart?vs_currency=usd&days=2000&interval=daily", 20000)
+      fetchJsonSmart("https://api.coingecko.com/api/v3/coins/bitcoin/market_chart?vs_currency=usd&days=2000&interval=daily", 22000)
     );
     const prices = (cg?.prices || []).map(p => Number(p?.[1]) || 0).filter(x => x > 0);
-    if (prices.length < 800) throw new Error(`日線資料不足：${prices.length}`);
+    if (prices.length < 800) throw new Error(`日線不足：${prices.length}`);
     const last1400 = prices.length > 1400 ? prices.slice(-1400) : prices;
-    const ma = last1400.reduce((s, x) => s + x, 0) / last1400.length;
-    if (!(Number.isFinite(ma) && ma > 0)) throw new Error("MA 計算無效");
+    const ma = last1400.reduce((s,x)=>s+x,0) / last1400.length;
+    if (!(Number.isFinite(ma) && ma > 0)) throw new Error("MA invalid");
     return ma;
   };
 
-  // 6M DD
   const calc6mDD_fromCC = async (nowPrice) => {
     const cc = await withRetry(() =>
-      fetchJsonSmart("https://min-api.cryptocompare.com/data/v2/histoday?fsym=BTC&tsym=USD&limit=200", 15000)
+      fetchJsonSmart("https://min-api.cryptocompare.com/data/v2/histoday?fsym=BTC&tsym=USD&limit=200", 16000)
     );
     if (cc?.Response === "Error") throw new Error(cc?.Message || "CryptoCompare histoday Error");
     const arr = cc?.Data?.Data || [];
     const highs = arr.map(x => Number(x?.high) || 0).filter(x => x > 0);
     if (highs.length < 30) throw new Error(`high不足：${highs.length}`);
     const hi = Math.max(...highs.slice(-180));
-    if (!(hi > 0) || !(nowPrice > 0)) throw new Error("高點或現價無效");
     return Math.max(0, ((hi - nowPrice) / hi) * 100);
   };
 
   const calc6mDD_fromCG = async (nowPrice) => {
     const cg = await withRetry(() =>
-      fetchJsonSmart("https://api.coingecko.com/api/v3/coins/bitcoin/market_chart?vs_currency=usd&days=200&interval=daily", 20000)
+      fetchJsonSmart("https://api.coingecko.com/api/v3/coins/bitcoin/market_chart?vs_currency=usd&days=200&interval=daily", 22000)
     );
     const prices = (cg?.prices || []).map(p => Number(p?.[1]) || 0).filter(x => x > 0);
     if (prices.length < 30) throw new Error(`價格不足：${prices.length}`);
     const hi = Math.max(...prices);
-    if (!(hi > 0) || !(nowPrice > 0)) throw new Error("高點或現價無效");
     return Math.max(0, ((hi - nowPrice) / hi) * 100);
   };
 
-  /* ===== Autofill (max success, manual-friendly) ===== */
+  /* ===== autofill (max success + manual friendly) ===== */
   const autofillFromApis = async () => {
     try {
       addLog("自動抓取中…（直連→AllOrigins→Jina）", "system");
 
-      // short cache (1 min)
+      // 60s cache
       const cache = loadMetricsCache();
       if (cache && cache.ts && (Date.now() - cache.ts) < 60_000) {
         const { btcUsd, fng, ethBtc, adaBtc, ma200w, below200w, dd6m } = cache;
-        if (btcUsd > 0) { draftRef.current.btcPrice = String(btcUsd); setInputValue("btcPrice", btcUsd); }
-        if (Number.isFinite(fng)) { draftRef.current.fngIndex = String(fng); setInputValue("fngIndex", fng); }
-        if (ethBtc > 0) { draftRef.current.ethBtcRatio = String(ethBtc); setInputValue("ethBtcRatio", ethBtc); }
-        if (adaBtc > 0) { draftRef.current.adaBtcRatio = String(adaBtc); setInputValue("adaBtcRatio", adaBtc); }
-        if (Number.isFinite(dd6m)) { draftRef.current.athDrawdownPct = dd6m.toFixed(2); setInputValue("athDrawdownPct", dd6m.toFixed(2)); }
-        if (typeof below200w === "number") draftRef.current.below200w = String(below200w);
+        if (btcUsd>0){ draftRef.current.btcPrice=String(btcUsd); setInputValue("btcPrice", btcUsd); }
+        if (Number.isFinite(fng)){ draftRef.current.fngIndex=String(fng); setInputValue("fngIndex", fng); }
+        if (ethBtc>0){ draftRef.current.ethBtcRatio=String(ethBtc); setInputValue("ethBtcRatio", ethBtc); }
+        if (adaBtc>0){ draftRef.current.adaBtcRatio=String(adaBtc); setInputValue("adaBtcRatio", adaBtc); }
+        if (Number.isFinite(dd6m)){ draftRef.current.athDrawdownPct=dd6m.toFixed(2); setInputValue("athDrawdownPct", dd6m.toFixed(2)); }
+        if (typeof below200w==="number") draftRef.current.below200w = String(below200w);
 
         setUi(prev => ({
           ...prev,
-          ...(btcUsd > 0 ? { btcPrice: btcUsd } : {}),
+          ...(btcUsd>0 ? { btcPrice: btcUsd } : {}),
           ...(Number.isFinite(fng) ? { fngIndex: fng } : {}),
-          ...(ethBtc > 0 ? { ethBtcRatio: ethBtc } : {}),
-          ...(adaBtc > 0 ? { adaBtcRatio: adaBtc } : {}),
+          ...(ethBtc>0 ? { ethBtcRatio: ethBtc } : {}),
+          ...(adaBtc>0 ? { adaBtcRatio: adaBtc } : {}),
           ...(Number.isFinite(dd6m) ? { athDrawdownPct: dd6m } : {}),
           ...(Number.isFinite(ma200w) ? { ma200w } : {}),
-          ...(typeof below200w === "number" ? { below200w } : {})
+          ...(typeof below200w==="number" ? { below200w } : {})
         }));
 
-        addLog("已使用 1 分鐘內快取值（Safari 防連續失敗）", "system");
+        addLog("已使用 1 分鐘內快取（避免 Safari 連打失敗）", "system");
         return;
       }
 
-      // 1) FNG
+      // FNG
       const fngJson = await withRetry(() =>
-        fetchJsonSmart("https://api.alternative.me/fng/?limit=1&format=json", 15000)
+        fetchJsonSmart("https://api.alternative.me/fng/?limit=1&format=json", 16000)
       );
       const fng = clamp(parseInt(fngJson?.data?.[0]?.value ?? "0", 10), 0, 100);
 
-      // 2) Prices: CryptoCompare first, fallback CoinGecko
-      let btcUsd = 0, ethUsd = 0, adaUsd = 0;
-      let src = "cryptocompare";
-      try {
+      // Prices: CC first, fallback CG
+      let btcUsd=0, ethUsd=0, adaUsd=0, src="cryptocompare";
+      try{
         const cc = await withRetry(() =>
-          fetchJsonSmart("https://min-api.cryptocompare.com/data/pricemulti?fsyms=BTC,ETH,ADA&tsyms=USD", 15000)
+          fetchJsonSmart("https://min-api.cryptocompare.com/data/pricemulti?fsyms=BTC,ETH,ADA&tsyms=USD", 16000)
         );
         if (cc?.Response === "Error") throw new Error(cc?.Message || "CryptoCompare Error");
         btcUsd = Math.round(Number(cc?.BTC?.USD || 0));
         ethUsd = Number(cc?.ETH?.USD || 0);
         adaUsd = Number(cc?.ADA?.USD || 0);
-        src = "cryptocompare";
-        if (!(btcUsd > 0)) throw new Error("BTC invalid");
-      } catch (e) {
+        if(!(btcUsd>0)) throw new Error("BTC invalid");
+        src="cryptocompare";
+      }catch(e){
         addLog(`pricemulti 失敗→改用 CoinGecko：${String(e)}`, "warning");
         const cg = await withRetry(() =>
-          fetchJsonSmart("https://api.coingecko.com/api/v3/simple/price?ids=bitcoin,ethereum,cardano&vs_currencies=usd", 20000)
+          fetchJsonSmart("https://api.coingecko.com/api/v3/simple/price?ids=bitcoin,ethereum,cardano&vs_currencies=usd", 22000)
         );
         btcUsd = Math.round(cg?.bitcoin?.usd ?? 0);
         ethUsd = Number(cg?.ethereum?.usd ?? 0);
         adaUsd = Number(cg?.cardano?.usd ?? 0);
-        src = "coingecko";
+        src="coingecko";
       }
-      if (!(btcUsd > 0)) throw new Error("BTC price invalid");
+      if(!(btcUsd>0)) throw new Error("BTC price invalid");
 
-      const ethBtc = ethUsd > 0 ? ethUsd / btcUsd : 0;
-      const adaBtc = adaUsd > 0 ? adaUsd / btcUsd : 0;
+      const ethBtc = ethUsd>0 ? ethUsd/btcUsd : 0;
+      const adaBtc = adaUsd>0 ? adaUsd/btcUsd : 0;
 
-      // 3) 200W MA
+      // 200W MA (source-aware)
       let ma200w = 0;
-      if (src === "cryptocompare") {
-        try { ma200w = await calc200wMA_fromCC(); } catch (e) { addLog(`200W(週線)失敗：${String(e)}`, "warning"); }
-        if (!(ma200w > 0)) {
-          try { ma200w = await calc200wMA_fromCG(); } catch (e) { addLog(`200W(日線備援)失敗：${String(e)}`, "warning"); }
+      if (src==="cryptocompare"){
+        try{ ma200w = await calc200wMA_fromCC(); } catch(e){ addLog(`200W(週線)失敗：${String(e)}`, "warning"); }
+        if(!(ma200w>0)){
+          try{ ma200w = await calc200wMA_fromCG(); } catch(e){ addLog(`200W(日線備援)失敗：${String(e)}`, "warning"); }
         }
       } else {
-        try { ma200w = await calc200wMA_fromCG(); } catch (e) { addLog(`200W(日線)失敗：${String(e)}`, "warning"); }
-        if (!(ma200w > 0)) {
-          try { ma200w = await calc200wMA_fromCC(); } catch (e) { addLog(`200W(週線備援)失敗：${String(e)}`, "warning"); }
+        try{ ma200w = await calc200wMA_fromCG(); } catch(e){ addLog(`200W(日線)失敗：${String(e)}`, "warning"); }
+        if(!(ma200w>0)){
+          try{ ma200w = await calc200wMA_fromCC(); } catch(e){ addLog(`200W(週線備援)失敗：${String(e)}`, "warning"); }
         }
       }
-      const below200w = (ma200w > 0 && btcUsd < ma200w) ? 1 : 0;
+      const below200w = (ma200w>0 && btcUsd < ma200w) ? 1 : 0;
 
-      // 4) 6M drawdown (same-source)
+      // 6M DD (same-source)
       let dd6m = 0;
-      if (src === "cryptocompare") {
-        try { dd6m = await calc6mDD_fromCC(btcUsd); }
-        catch (e) { addLog(`6M(CC)失敗：${String(e)}`, "warning"); dd6m = await calc6mDD_fromCG(btcUsd); }
+      if (src==="cryptocompare"){
+        try{ dd6m = await calc6mDD_fromCC(btcUsd); }
+        catch(e){ addLog(`6M(CC)失敗：${String(e)}`, "warning"); dd6m = await calc6mDD_fromCG(btcUsd); }
       } else {
-        try { dd6m = await calc6mDD_fromCG(btcUsd); }
-        catch (e) { addLog(`6M(CG)失敗：${String(e)}`, "warning"); dd6m = await calc6mDD_fromCC(btcUsd); }
+        try{ dd6m = await calc6mDD_fromCG(btcUsd); }
+        catch(e){ addLog(`6M(CG)失敗：${String(e)}`, "warning"); dd6m = await calc6mDD_fromCC(btcUsd); }
       }
 
-      // 5) Write to inputs + UI (success updates; failure keeps old)
-      draftRef.current.btcPrice = String(btcUsd); setInputValue("btcPrice", btcUsd);
-      draftRef.current.fngIndex = String(fng); setInputValue("fngIndex", fng);
-      if (ethBtc > 0) { draftRef.current.ethBtcRatio = String(ethBtc); setInputValue("ethBtcRatio", ethBtc); }
-      if (adaBtc > 0) { draftRef.current.adaBtcRatio = String(adaBtc); setInputValue("adaBtcRatio", adaBtc); }
+      // Write values (success only)
+      draftRef.current.btcPrice=String(btcUsd); setInputValue("btcPrice", btcUsd);
+      draftRef.current.fngIndex=String(fng); setInputValue("fngIndex", fng);
+      if(ethBtc>0){ draftRef.current.ethBtcRatio=String(ethBtc); setInputValue("ethBtcRatio", ethBtc); }
+      if(adaBtc>0){ draftRef.current.adaBtcRatio=String(adaBtc); setInputValue("adaBtcRatio", adaBtc); }
       draftRef.current.athDrawdownPct = dd6m.toFixed(2); setInputValue("athDrawdownPct", dd6m.toFixed(2));
       draftRef.current.below200w = String(below200w);
 
@@ -419,41 +395,38 @@ function App(){
         ethBtcRatio: ethBtc || prev.ethBtcRatio,
         adaBtcRatio: adaBtc || prev.adaBtcRatio,
         athDrawdownPct: dd6m,
-        ma200w: ma200w > 0 ? ma200w : prev.ma200w,
-        below200w: ma200w > 0 ? below200w : prev.below200w
+        ma200w: ma200w>0 ? ma200w : prev.ma200w,
+        below200w: ma200w>0 ? below200w : prev.below200w
       }));
 
-      // 6) rebound during black swan
-      if (state.blackSwan && state.blackSwan.active) {
-        const low = state.blackSwan.lowPrice > 0 ? state.blackSwan.lowPrice : btcUsd;
+      // Update rebound if black swan active
+      if (state.blackSwan && state.blackSwan.active){
+        const low = state.blackSwan.lowPrice>0 ? state.blackSwan.lowPrice : btcUsd;
         const newLow = Math.min(low, btcUsd);
         const rb = reboundPctFrom(newLow, btcUsd);
-        if (newLow !== low) setState(prev => ({ ...prev, blackSwan: { ...prev.blackSwan, lowPrice: newLow } }));
+        if(newLow !== low) setState(prev => ({ ...prev, blackSwan: { ...prev.blackSwan, lowPrice: newLow } }));
         setUi(prev => ({ ...prev, reboundPct: rb }));
         draftRef.current.reboundPct = rb.toFixed(2);
         setInputValue("reboundPct", rb.toFixed(2));
       }
 
-      // 7) cache
+      // cache
       saveMetricsCache({ btcUsd, fng, ethBtc, adaBtc, ma200w, below200w, dd6m, src });
 
-      addLog(`抓取成功(src=${src})｜6M回撤≈${dd6m.toFixed(2)}%｜200W=${ma200w>0?Math.round(ma200w):"?"}`, "success");
-
+      addLog(`抓取成功(src=${src})｜6M≈${dd6m.toFixed(2)}%｜200W=${ma200w>0?Math.round(ma200w):"?"}`, "success");
     } catch (e) {
       addLog(`自動抓取失敗：${String(e)}`, "warning");
       setModal({
         mode:"info",
         title:"自動抓取失敗（可手動更新）",
         body:
-`Safari 常見跨域/限流，已嘗試 直連→AllOrigins→Jina 三重備援仍失敗。
+`已嘗試 直連→AllOrigins→Jina 三重備援仍失敗（Safari 常見）。
 
-你可以直接手動在欄位輸入：
+你可以手動填：
 - BTC 價格、恐貪
 - ETH/BTC、ADA/BTC
-- 6M ATH 回撤%
-- 200W MA（可留空，不影響執行）
+- 6M 回撤%
 - 反彈%
-
 然後照常按「執行本週決策」。`
       });
     }
@@ -492,7 +465,7 @@ function App(){
         onClick:()=>{ const next = Number(ui[name]||0)===1 ? 0 : 1; setUi(p=>({ ...p, [name]: next })); draftRef.current[name]=String(next); }
       }, Number(ui[name]||0)===1 ? "ON" : "OFF")
     )
-  );  /* ===== Backup ===== */
+  );  /* ===== Backup / Tools ===== */
   const copyToClipboard = async (text) => {
     try{
       if(navigator.clipboard && navigator.clipboard.writeText){
@@ -522,14 +495,12 @@ function App(){
       setState({ ...initialStateNow(), ...obj.state });
       if(obj.ui) setUi(prev => ({ ...prev, ...obj.ui }));
       if(obj.draft) draftRef.current = { ...draftRef.current, ...obj.draft };
-
       if(draftRef.current.btcPrice) setInputValue("btcPrice", draftRef.current.btcPrice);
       if(draftRef.current.fngIndex) setInputValue("fngIndex", draftRef.current.fngIndex);
       if(draftRef.current.ethBtcRatio) setInputValue("ethBtcRatio", draftRef.current.ethBtcRatio);
       if(draftRef.current.adaBtcRatio) setInputValue("adaBtcRatio", draftRef.current.adaBtcRatio);
       if(draftRef.current.athDrawdownPct) setInputValue("athDrawdownPct", draftRef.current.athDrawdownPct);
       if(draftRef.current.reboundPct) setInputValue("reboundPct", draftRef.current.reboundPct);
-
       addLog("已匯入備份並覆蓋目前資料。", "success");
       setModal({ mode:"info", title:"匯入成功", body:"備份已匯入。" });
     }catch(e){
@@ -537,13 +508,9 @@ function App(){
     }
   };
 
-  /* ===== Reserve / Reset / Cold ===== */
   const addExtraReserve = () => {
     const add = Math.max(0, Math.floor(parseNum(draftRef.current.extraReserveAdd, 0)));
-    if(!(add>0)){
-      setModal({ mode:"info", title:"輸入錯誤", body:"請輸入要補充的預備金（正整數）" });
-      return;
-    }
+    if(!(add>0)){ setModal({ mode:"info", title:"輸入錯誤", body:"請輸入要補充的預備金（正整數）" }); return; }
     setState(prev => ({ ...prev, usdtReserve: prev.usdtReserve + add }));
     addLog(`手動補充預備金：+${add} U`, "success");
     draftRef.current.extraReserveAdd = "0";
@@ -578,7 +545,7 @@ function App(){
     setModal({ mode:"info", title:"資產轉移", body:`成功移入冷錢包：${amount.toFixed(6)} BTC` });
   };
 
-  /* ===== Orders / Conversion (kept) ===== */
+  /* ===== Orders / Conversion ===== */
   const createUsdtBuybackOrder = (usdtAmount, dropPct) => {
     const btcPrice = Number(ui.btcPrice || 0);
     if(!(btcPrice>0)) return null;
@@ -663,7 +630,211 @@ function App(){
       setState(prev => ({ ...prev, pendingOrders: updated }));
       setModal({ mode:"info", title:"未達標", body:"目前沒有掛單達到接回價位。" });
     }
-  };  const HeaderCards = () => (
+  };
+
+  const openEthMixedModal = (stage) => {
+    const need = stage===1 ? ETH_STAGE1 : ETH_STAGE2;
+    if(ui.ethBtcRatio < need){
+      setModal({ mode:"info", title:"未達門檻", body:`ETH/BTC 需 >= ${need}` });
+      return;
+    }
+    ethStageBtcRef.current = "";
+    ethStageUsdtRef.current = "";
+    setModal({ mode: stage===1 ? "eth_stage1" : "eth_stage2", title: stage===1 ? "ETH 一階輸入" : "ETH 二階輸入" });
+  };
+
+  const confirmEthMixed = (stage) => {
+    const btc = parseNum(ethStageBtcRef.current, NaN);
+    const usdt = parseNum(ethStageUsdtRef.current, NaN);
+    const ethToBtc = stage===1 ? 5 : 6;
+    const ethToUsdt = stage===1 ? 5 : 6;
+    const drop = stage===1 ? BUYBACK_DROP_STAGE1 : BUYBACK_DROP_STAGE2;
+
+    if(!(btc>0)){ setModal({ mode:"info", title:"輸入錯誤", body:"BTC 數量必須 > 0" }); return; }
+    if(!(usdt>0)){ setModal({ mode:"info", title:"輸入錯誤", body:"USDT 數量必須 > 0" }); return; }
+
+    const ok = executeConvertDirectToBTC("ETH", ethToBtc, btc);
+    if(!ok){ setModal({ mode:"info", title:"執行失敗", body:"ETH 不足或資料錯誤。" }); return; }
+    executeConvertToUSDTWithOrder(ethToUsdt, usdt, drop);
+    setModal({ mode:"info", title:"完成", body:`已完成 ETH 第${stage}階：一半換 BTC + 一半換 USDT 並建立掛單。` });
+  };  /* ===== Weekly Execute ===== */
+  const executeWeekly = () => {
+    const btcPrice = Number(ui.btcPrice || 0);
+    const fng = clamp(Number(ui.fngIndex || 0), 0, 100);
+
+    if(!(btcPrice>0)){
+      setModal({ mode:"info", title:"輸入錯誤", body:"BTC 價格必須 > 0" });
+      return;
+    }
+
+    const nowMonthKey = monthKeyNow();
+    let monthRefilled = false;
+
+    // monthly refill
+    let monthParts = state.monthPartsRemaining;
+    let lastMonthKey = state.lastMonthKey;
+    if(lastMonthKey !== nowMonthKey){
+      monthParts = MONTH_PARTS;
+      lastMonthKey = nowMonthKey;
+      monthRefilled = true;
+    }
+
+    // 90-day force buyback
+    const nowISO = new Date().toISOString();
+    let forcedBtc = 0;
+    const updatedOrders = state.pendingOrders.map(o => {
+      if(o.status !== "open") return o;
+      if(new Date(o.deadlineISO).getTime() <= Date.now()){
+        const btcBought = (o.usdtAmount||0) / btcPrice;
+        forcedBtc += btcBought;
+        return { ...o, status:"closed", closedReason:"deadline_force_buyback", btcReceived: btcBought, closedAtISO: nowISO };
+      }
+      return o;
+    });
+
+    // bucket & greed weeks
+    let greedWeeks = state.consecutiveGreedWeeks;
+    let bucket = "";
+    if(fng < 20){ bucket="A"; greedWeeks = 0; }
+    else if(fng <= 40){ bucket="B"; greedWeeks = 0; }
+    else if(fng <= 75){ bucket="C"; greedWeeks = 0; }
+    else { bucket="D"; greedWeeks += 1; }
+
+    // decide parts
+    let spendParts = 0, saveParts = 0, action = "";
+    if(monthParts <= 0){
+      action = "本月份額已用完（0/3）｜本次不新增月薪資金";
+    }else{
+      if(bucket==="A"){ action="A 極度恐慌：3份買進"; spendParts=3; saveParts=0; }
+      if(bucket==="B"){ action="B 恐懼：2買1存"; spendParts=2; saveParts=1; }
+      if(bucket==="C"){ action="C 中性：1買2存"; spendParts=1; saveParts=2; }
+      if(bucket==="D"){
+        if(greedWeeks > GREED_WEEKS_FOR_INSURANCE){ action="D 貪婪：長牛保險 1買2存"; spendParts=1; saveParts=2; }
+        else { action="D 貪婪：0買3存"; spendParts=0; saveParts=3; }
+      }
+      const totalWanted = spendParts + saveParts;
+      if(totalWanted > monthParts){
+        const sp = Math.min(spendParts, monthParts);
+        const left = monthParts - sp;
+        const sv = Math.min(saveParts, left);
+        spendParts = sp; saveParts = sv;
+        action += `（份額不足：買${sp}份/存${sv}份）`;
+      }
+    }
+
+    const usdtSpent = spendParts * PART;
+    const usdtSaved = saveParts * PART;
+
+    // black swan trigger
+    const athDD = clamp(Number(ui.athDrawdownPct || 0), 0, 100);
+    const below200w = Number(ui.below200w || 0) === 1;
+    const blackSwanTriggered = (fng < 20) || (athDD >= 30) || below200w;
+
+    let blackSwan = { ...state.blackSwan };
+    let blackSwanSpent = 0;
+
+    // compute rebound from lowPrice if active
+    let currentRebound = 0;
+    if (blackSwan.active){
+      const low = blackSwan.lowPrice > 0 ? blackSwan.lowPrice : btcPrice;
+      const newLow = Math.min(low, btcPrice);
+      blackSwan = { ...blackSwan, lowPrice: newLow };
+      currentRebound = reboundPctFrom(newLow, btcPrice);
+      setUi(prev => ({ ...prev, reboundPct: currentRebound }));
+      draftRef.current.reboundPct = currentRebound.toFixed(2);
+      setInputValue("reboundPct", currentRebound.toFixed(2));
+    }
+
+    // stop if rebound > 15%
+    if (blackSwan.active && currentRebound > BLACK_SWAN_STOP_REBOUND){
+      blackSwan = { ...blackSwan, active:false, remainingWeeks:0 };
+      addLog(`黑天鵝停止：反彈 ${currentRebound.toFixed(2)}% > ${BLACK_SWAN_STOP_REBOUND}%`, "warning");
+    }
+
+    // reserve after save
+    let reserveAfterSave = state.usdtReserve + usdtSaved;
+
+    // start black swan
+    if(!blackSwan.active && blackSwanTriggered){
+      const reserveNow = reserveAfterSave;
+      if(reserveNow > 0){
+        const weekly = reserveNow / BLACK_SWAN_WEEKS;
+        const reason = (fng < 20) ? "FNG<20" : (athDD >= 30 ? "6M ATH回撤>=30%" : "跌破200W");
+        blackSwan = {
+          active:true,
+          remainingWeeks:BLACK_SWAN_WEEKS,
+          weeklyBudget:weekly,
+          startedAtISO:nowISO,
+          reason,
+          anchorPrice: btcPrice,
+          lowPrice: btcPrice
+        };
+        addLog(`黑天鵝啟動：原因=${reason}｜預備金分4週買入`, "alert");
+      }
+    }
+
+    // black swan buy this week
+    if(blackSwan.active && blackSwan.remainingWeeks > 0){
+      const spend = Math.max(0, Math.min(reserveAfterSave, blackSwan.weeklyBudget));
+      if(spend > 0){
+        blackSwanSpent = spend;
+        reserveAfterSave -= spend;
+        blackSwan = { ...blackSwan, remainingWeeks: blackSwan.remainingWeeks - 1 };
+        addLog(`黑天鵝買入：本週動用預備金 ${Math.floor(spend)}U（剩 ${blackSwan.remainingWeeks} 週）`, "success");
+      }
+      if(blackSwan.remainingWeeks <= 0){
+        blackSwan = { ...blackSwan, active:false, remainingWeeks:0 };
+        addLog("黑天鵝結束：4週買入完成", "system");
+      }
+    }
+
+    // buy BTC (DCA + black swan) + forced buyback
+    const totalSpent = usdtSpent + blackSwanSpent;
+    const btcBought = totalSpent > 0 ? (totalSpent / btcPrice) : 0;
+
+    // consume parts
+    const usedParts = spendParts + saveParts;
+    const newMonthParts = Math.max(0, monthParts - usedParts);
+
+    const next = {
+      ...state,
+      btcHot: state.btcHot + btcBought + forcedBtc,
+      usdtReserve: reserveAfterSave,
+      consecutiveGreedWeeks: greedWeeks,
+      monthPartsRemaining: newMonthParts,
+      lastMonthKey,
+      blackSwan,
+      pendingOrders: updatedOrders
+    };
+    setState(next);
+
+    if(monthRefilled) addLog("月份更新：補充本月份額 3 份（180U）", "system");
+    addLog(`週報：${action}`, usdtSpent > 0 ? "success" : "warning");
+    if(usdtSaved > 0) addLog(`存入預備金：+${usdtSaved}U`, "info");
+    if(totalSpent > 0) addLog(`本週投入：${Math.floor(totalSpent)}U → 買入 ${btcBought.toFixed(6)} BTC`, "success");
+    if(forcedBtc > 0) addLog(`90天回家：到期強制買回 +${forcedBtc.toFixed(6)} BTC`, "alert");
+
+    const hit = updatedOrders.filter(o => o.status==="open" && (ui.btcPrice||0) <= (o.targetPrice||-1));
+    if(hit.length > 0) addLog(`掛單達標提醒：${hit.length} 筆已達接回價（到掛單頁）`, "alert");
+
+    setModal({
+      mode:"info",
+      title:"執行完成",
+      body: `
+${action}
+本月份額剩餘：${newMonthParts}/3
+DCA 投入：${usdtSpent}U｜存入預備：${usdtSaved}U
+黑天鵝動用：${Math.floor(blackSwanSpent)}U
+買入 BTC：${btcBought.toFixed(6)}
+90天回家：${forcedBtc>0 ? ("+ "+forcedBtc.toFixed(6)+" BTC") : "無"}
+總持有：${(next.btcHot+next.btcCold).toFixed(4)} BTC
+預備金餘額：${Math.floor(next.usdtReserve)}U
+      `.trim()
+    });
+  };
+
+  /* ===== Pages ===== */
+  const HeaderCards = () => (
     React.createElement("div", { className:"space-y-4" },
       React.createElement("div", { className:"grid grid-cols-2 gap-3" },
         React.createElement("div", { className:"bg-slate-800 rounded-2xl p-4 border border-slate-700" },
@@ -676,7 +847,6 @@ function App(){
           React.createElement("div", { className:"text-2xl mono font-bold mt-1" }, fmt(state.btcCold,4))
         )
       ),
-
       React.createElement("div", { className:"bg-slate-800 rounded-2xl p-4 border border-slate-700 space-y-3" },
         React.createElement("div", { className:"flex items-start justify-between gap-2" },
           React.createElement("div", null,
@@ -708,35 +878,127 @@ function App(){
   const HomePage = () => (
     React.createElement("div", { className:"bg-slate-800 rounded-2xl p-5 border border-slate-700 space-y-4" },
       React.createElement("div", { className:"flex items-center justify-between" },
-        React.createElement("div", { className:"text-lg font-extrabold text-emerald-400" }, "自動抓取 / 手動更新"),
-        React.createElement("div", { className:"text-xs text-slate-400 mono" }, `剩餘 ${daysLeft} 天`)
+        React.createElement("div", { className:"text-lg font-extrabold text-emerald-400" }, "⚡ 每週執行（自動抓取 + 手動可改）"),
+        React.createElement("div", { className:"text-xs text-slate-400 mono" }, `份額 ${state.monthPartsRemaining}/3`)
       ),
-
+      React.createElement(Field, { label:"BTC 價格 (USD≈USDT)", name:"btcPrice", id:"btcPrice", inputMode:"numeric" }),
+      React.createElement("div", { className:"space-y-1" },
+        React.createElement("div", { className:"flex justify-between items-center" },
+          React.createElement("div", { className:"text-xs text-slate-400" }, "恐懼與貪婪 (0-100)"),
+          React.createElement("div", { className:"text-sm mono text-emerald-300" }, String(ui.fngIndex))
+        ),
+        React.createElement("input", {
+          id:"fngIndex",
+          defaultValue: draftRef.current.fngIndex,
+          inputMode:"numeric",
+          className:"w-full bg-slate-900 border border-slate-700 rounded-2xl px-4 py-3 text-lg mono focus:outline-none focus:ring-2 focus:ring-emerald-500",
+          onInput:(e)=>{ draftRef.current.fngIndex = e.target.value; },
+          onBlur:()=>{
+            let n = parseNum(draftRef.current.fngIndex, ui.fngIndex);
+            if(!Number.isFinite(n)) n = ui.fngIndex;
+            n = clamp(Math.round(n), 0, 100);
+            draftRef.current.fngIndex = String(n);
+            setUi(prev => ({ ...prev, fngIndex: n }));
+          }
+        })
+      ),
       React.createElement("button", { onClick: autofillFromApis, className:"w-full bg-slate-700 hover:bg-slate-600 rounded-2xl py-3 font-bold" },
-        "重新自動抓取（含多重備援）"),
-
-      React.createElement(Field, { label:"BTC 價格", name:"btcPrice", id:"btcPrice", inputMode:"numeric" }),
-      React.createElement(Field, { label:"恐懼貪婪(0-100)", name:"fngIndex", id:"fngIndex", inputMode:"numeric" }),
-      React.createElement(Field, { label:"ETH/BTC", name:"ethBtcRatio", id:"ethBtcRatio", inputMode:"decimal" }),
-      React.createElement(Field, { label:"ADA/BTC", name:"adaBtcRatio", id:"adaBtcRatio", inputMode:"decimal" }),
+        "自動抓取（直連→AllOrigins→Jina）"),
+      React.createElement(Field, { label:"ETH/BTC 匯率", name:"ethBtcRatio", id:"ethBtcRatio", inputMode:"decimal" }),
+      React.createElement(Field, { label:"ADA/BTC 匯率", name:"adaBtcRatio", id:"adaBtcRatio", inputMode:"decimal" }),
       React.createElement(Field, { label:"近6個月 ATH 回撤(%)", name:"athDrawdownPct", id:"athDrawdownPct", inputMode:"decimal" }),
-
       React.createElement("div", { className:"bg-slate-900 border border-slate-700 rounded-2xl p-4 space-y-2" },
-        React.createElement("div", { className:"text-xs text-slate-400" }, "200W MA（抓不到可忽略）"),
+        React.createElement("div", { className:"text-xs text-slate-400" }, "200W MA（抓不到也可照常執行）"),
         React.createElement("div", { className:"text-sm mono text-slate-200" },
           ui.ma200w > 0 ? `200W≈${Math.round(ui.ma200w)}｜跌破=${ui.below200w ? "ON" : "OFF"}` : "尚未取得（看 Logs）"
         )
       ),
+      React.createElement(Toggle01, { label:"BTC 跌破 200W（可手動切）", name:"below200w" }),
+      React.createElement(Field, { label:"反彈(%)（黑天鵝期間自動計算 / 也可手動）", name:"reboundPct", id:"reboundPct", inputMode:"decimal" }),
+      React.createElement("button", { onClick: executeWeekly, className:"w-full bg-emerald-600 hover:bg-emerald-700 rounded-2xl py-4 text-lg font-black" }, "執行本週決策")
+    )
+  );
 
-      React.createElement(Toggle01, { label:"跌破 200W", name:"below200w" }),
-      React.createElement(Field, { label:"黑天鵝反彈(%)", name:"reboundPct", id:"reboundPct", inputMode:"decimal" })
+  const ConvertPage = () => (
+    React.createElement("div", { className:"bg-slate-800 rounded-2xl p-5 border border-slate-700 space-y-4" },
+      React.createElement("div", { className:"text-lg font-extrabold text-fuchsia-300" }, "🔄 匯率轉換"),
+      React.createElement("div", { className:"text-sm text-slate-300" }, `ETH: ${fmt(state.eth,2)}｜ADA: ${Math.floor(state.ada).toLocaleString()}`),
+      React.createElement("div", { className:"grid grid-cols-2 gap-2" },
+        React.createElement("button", { className:"bg-slate-700 hover:bg-slate-600 rounded-xl py-3 text-sm font-black", onClick:()=>openEthMixedModal(1) }, "ETH 一階（混合）"),
+        React.createElement("button", { className:"bg-slate-700 hover:bg-slate-600 rounded-xl py-3 text-sm font-black", onClick:()=>openEthMixedModal(2) }, "ETH 二階（混合）")
+      ),
+      React.createElement("button", {
+        className:"w-full bg-fuchsia-600 hover:bg-fuchsia-700 rounded-2xl py-4 text-sm font-black",
+        onClick: ()=> {
+          if(ui.ethBtcRatio < ETH_STAGE3){ setModal({mode:"info", title:"未達門檻", body:`ETH/BTC 需 >= ${ETH_STAGE3}`}); return; }
+          const btc = prompt("三階：輸入 12 ETH 全換到的 BTC 數量","");
+          if(!btc) return;
+          executeConvertDirectToBTC("ETH", 12, parseNum(btc, NaN));
+        }
+      }, "ETH 三階（全換 BTC）"),
+      React.createElement("div", { className:"text-xs text-slate-400" }, "ADA 一/二階（直接換 BTC）"),
+      React.createElement("div", { className:"grid grid-cols-2 gap-2" },
+        React.createElement("button", {
+          className:"bg-slate-700 hover:bg-slate-600 rounded-xl py-3 text-sm font-black",
+          onClick: ()=> {
+            if(ui.adaBtcRatio < ADA_STAGE1){ setModal({mode:"info", title:"未達門檻", body:`ADA/BTC 需 >= ${ADA_STAGE1}`}); return; }
+            const btc = prompt("ADA 一階：40,000 ADA 換到的 BTC 數量","");
+            if(!btc) return;
+            executeConvertDirectToBTC("ADA", 40000, parseNum(btc, NaN));
+          }
+        }, "ADA 一階"),
+        React.createElement("button", {
+          className:"bg-slate-700 hover:bg-slate-600 rounded-xl py-3 text-sm font-black",
+          onClick: ()=> {
+            if(ui.adaBtcRatio < ADA_STAGE2){ setModal({mode:"info", title:"未達門檻", body:`ADA/BTC 需 >= ${ADA_STAGE2}`}); return; }
+            const btc = prompt("ADA 二階：34,000 ADA 換到的 BTC 數量","");
+            if(!btc) return;
+            executeConvertDirectToBTC("ADA", 34000, parseNum(btc, NaN));
+          }
+        }, "ADA 二階")
+      )
+    )
+  );
+
+  const OrdersPage = () => (
+    React.createElement("div", { className:"bg-slate-800 rounded-2xl p-5 border border-slate-700 space-y-3" },
+      React.createElement("div", { className:"text-lg font-extrabold text-sky-300" }, "📌 掛單/90天"),
+      React.createElement("button", { onClick: checkAndBuybackOrders, className:"w-full bg-sky-600 hover:bg-sky-700 rounded-2xl py-4 text-lg font-black" }, "檢查掛單 / 達標接回"),
+      React.createElement("div", { className:"bg-slate-900 border border-slate-700 rounded-2xl p-4" },
+        React.createElement("div", { className:"text-xs text-slate-500 mono mb-2" }, "> PENDING ORDERS"),
+        (state.pendingOrders.length===0)
+          ? React.createElement("div", { className:"text-slate-600 text-sm" }, "目前沒有掛單。")
+          : state.pendingOrders.slice(0, 30).map(o => {
+              const open = o.status==="open";
+              return React.createElement("div", { key:o.id, className:"border-b border-slate-800 py-3 last:border-0" },
+                React.createElement("div", { className:"flex items-center justify-between" },
+                  React.createElement("div", { className:"text-sm font-bold " + (open ? "text-yellow-300" : "text-slate-400") }, open ? "OPEN" : "CLOSED"),
+                  React.createElement("div", { className:"text-xs text-slate-500 mono" }, open ? `剩 ${daysLeftToISO(o.deadlineISO)} 天` : (o.closedReason||""))
+                ),
+                React.createElement("div", { className:"text-xs mono text-slate-300 mt-1" },
+                  `USDT=${Math.floor(o.usdtAmount||0)}｜回撤=${o.dropPct}%｜接回價≤${Math.floor(o.targetPrice||0)}`
+                )
+              );
+            })
+      )
+    )
+  );
+
+  const SopPage = () => (
+    React.createElement("div", { className:"bg-slate-800 rounded-2xl p-5 border border-slate-700 space-y-2" },
+      React.createElement("div", { className:"text-lg font-extrabold text-yellow-300" }, "📜 黑天鵝規則"),
+      React.createElement("div", { className:"text-sm text-slate-300 leading-relaxed space-y-2" },
+        React.createElement("div", null, "觸發：FNG<20 或 6M ATH 回撤≥30% 或 跌破 200W。"),
+        React.createElement("div", null, "方式：預備金分 4 週等額買入。"),
+        React.createElement("div", null, "停止：買入期間反彈 > 15% 立即停止。")
+      )
     )
   );
 
   const ToolsPage = () => (
-    React.createElement("div", { className:"bg-slate-800 rounded-2xl p-5 border border-slate-700 space-y-2" },
-      React.createElement("div", { className:"text-lg font-extrabold text-sky-300" }, "備份"),
-      React.createElement("div", { className:"text-sm text-slate-300" }, "用匯出/匯入 JSON 可跨裝置同步。")
+    React.createElement("div", { className:"bg-slate-800 rounded-2xl p-5 border border-slate-700 space-y-3" },
+      React.createElement("div", { className:"text-lg font-extrabold text-sky-300" }, "🧰 備份/工具"),
+      React.createElement("div", { className:"text-sm text-slate-300" }, "資料存在本機；用『匯出/匯入』可跨裝置同步。")
     )
   );
 
@@ -751,18 +1013,24 @@ function App(){
         React.createElement("div", { className:"h-full bg-gradient-to-r from-emerald-600 to-green-400 transition-all", style:{ width: progress + "%" } })
       ),
       React.createElement("div", { className:"text-[10px] text-right text-slate-500 mt-1" },
-        `穩定幣占比約 ${stablePct.toFixed(1)}%`
+        `剩餘 ${daysLeft} 天｜本月份額 ${state.monthPartsRemaining}/3｜穩定幣占比約 ${stablePct.toFixed(1)}%`
       )
     ),
 
     React.createElement("div", { className:"p-4 space-y-4 max-w-xl mx-auto pb-24" },
       React.createElement("div", { className:"flex gap-2 flex-wrap" },
         React.createElement(Chip, { active: tab==="home", onClick:()=>setTab("home") }, "HOME"),
+        React.createElement(Chip, { active: tab==="convert", onClick:()=>setTab("convert") }, "匯率轉換"),
+        React.createElement(Chip, { active: tab==="orders", onClick:()=>setTab("orders") }, "掛單/90天"),
+        React.createElement(Chip, { active: tab==="sop", onClick:()=>setTab("sop") }, "憲法"),
         React.createElement(Chip, { active: tab==="tools", onClick:()=>setTab("tools") }, "備份")
       ),
 
       HeaderCards(),
       tab==="home" && HomePage(),
+      tab==="convert" && ConvertPage(),
+      tab==="orders" && OrdersPage(),
+      tab==="sop" && SopPage(),
       tab==="tools" && ToolsPage(),
 
       React.createElement("div", { className:"bg-slate-950 rounded-2xl p-4 border border-slate-800" },
@@ -781,16 +1049,18 @@ function App(){
     modal && React.createElement("div", { className:"fixed inset-0 z-50 bg-black/70 flex items-center justify-center p-4" },
       React.createElement("div", { className:"w-full max-w-lg bg-slate-900 border border-slate-700 rounded-2xl p-5" },
         React.createElement("div", { className:"text-lg font-black mb-3" }, modal.title || "訊息"),
+
         (modal.mode==="export") && React.createElement("div", { className:"space-y-3" },
           React.createElement("textarea", { readOnly:true, value: modal.json || "", className:"w-full h-56 bg-black/40 border border-slate-700 rounded-xl p-3 text-xs mono text-slate-200" }),
           React.createElement("button", {
             className:"w-full bg-emerald-600 hover:bg-emerald-700 rounded-xl py-3 font-bold",
             onClick: async ()=> {
               const ok = await copyToClipboard(modal.json || "");
-              setModal({ mode:"info", title:"已複製", body: ok ? "已複製到剪貼簿。" : "請手動複製。" });
+              setModal({ mode:"info", title:"已複製", body: ok ? "已複製到剪貼簿。" : "複製失敗，請手動複製。" });
             }
           }, "一鍵複製")
         ),
+
         (modal.mode==="import") && React.createElement("div", { className:"space-y-3" },
           React.createElement("textarea", { id:"importBox", placeholder:"貼上 JSON…", className:"w-full h-56 bg-black/40 border border-slate-700 rounded-xl p-3 text-xs mono text-slate-200" }),
           React.createElement("button", {
@@ -801,7 +1071,23 @@ function App(){
             }
           }, "匯入並覆蓋")
         ),
+
+        (modal.mode==="eth_stage1") && React.createElement("div", { className:"space-y-3" },
+          React.createElement("div", { className:"text-sm text-slate-300" }, "一階：5ETH→BTC + 5ETH→USDT（回撤15%）"),
+          React.createElement("input", { className:"w-full bg-black/40 border border-slate-700 rounded-xl px-3 py-3 text-sm mono", placeholder:"5ETH→BTC（例如0.3000）", onInput:(e)=>{ ethStageBtcRef.current = e.target.value; } }),
+          React.createElement("input", { className:"w-full bg-black/40 border border-slate-700 rounded-xl px-3 py-3 text-sm mono", placeholder:"5ETH→USDT（例如12000）", onInput:(e)=>{ ethStageUsdtRef.current = e.target.value; } }),
+          React.createElement("button", { className:"w-full bg-emerald-600 hover:bg-emerald-700 rounded-xl py-3 font-bold", onClick:()=>confirmEthMixed(1) }, "確認執行")
+        ),
+
+        (modal.mode==="eth_stage2") && React.createElement("div", { className:"space-y-3" },
+          React.createElement("div", { className:"text-sm text-slate-300" }, "二階：6ETH→BTC + 6ETH→USDT（回撤20%）"),
+          React.createElement("input", { className:"w-full bg-black/40 border border-slate-700 rounded-xl px-3 py-3 text-sm mono", placeholder:"6ETH→BTC（例如0.3600）", onInput:(e)=>{ ethStageBtcRef.current = e.target.value; } }),
+          React.createElement("input", { className:"w-full bg-black/40 border border-slate-700 rounded-xl px-3 py-3 text-sm mono", placeholder:"6ETH→USDT（例如15000）", onInput:(e)=>{ ethStageUsdtRef.current = e.target.value; } }),
+          React.createElement("button", { className:"w-full bg-emerald-600 hover:bg-emerald-700 rounded-xl py-3 font-bold", onClick:()=>confirmEthMixed(2) }, "確認執行")
+        ),
+
         (modal.mode==="info" || !modal.mode) && React.createElement("pre", { className:"text-sm text-slate-200 whitespace-pre-wrap leading-relaxed mono" }, modal.body || ""),
+
         React.createElement("button", { onClick:()=>setModal(null), className:"mt-4 w-full bg-slate-700 hover:bg-slate-600 rounded-xl py-3 font-bold" }, "關閉")
       )
     )

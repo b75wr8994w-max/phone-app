@@ -20,11 +20,22 @@
   <script src="https://cdn.jsdelivr.net/npm/canvas-confetti@1.6.0/dist/confetti.browser.min.js"></script>
 
   <style>
-    body { background-color:#0f172a; color:#f1f5f9; -webkit-tap-highlight-color:transparent;
-      font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,Helvetica,Arial,sans-serif; }
+    body {
+      background-color:#0f172a;
+      color:#f1f5f9;
+      -webkit-tap-highlight-color:transparent;
+      font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,Helvetica,Arial,sans-serif;
+    }
     .mono { font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", "Courier New", monospace; }
-    .pb-safe { padding-bottom: calc(90px + env(safe-area-inset-bottom)); }
+
+    /* ✅ 內容區：給 TabBar 留空間（避免被擋） */
+    .pb-content { padding-bottom: calc(88px + env(safe-area-inset-bottom)); }
+
+    /* ✅ TabBar：只補安全區，不要把按鈕頂上去 */
+    .pb-tabbar { padding-bottom: env(safe-area-inset-bottom); }
+
     .pt-safe { padding-top: env(safe-area-inset-top); }
+
     ::-webkit-scrollbar { width: 4px; }
     ::-webkit-scrollbar-track { background: #1e293b; }
     ::-webkit-scrollbar-thumb { background: #475569; border-radius: 2px; }
@@ -35,6 +46,7 @@
       100% { box-shadow: 0 0 0 0 rgba(16,185,129,0); }
     }
     .animate-pulse-green { animation: pulse-green 2s infinite; }
+
     @keyframes fade-in { from { opacity: 0; transform: translateY(8px);} to { opacity: 1; transform: translateY(0);} }
     .animate-fade-in { animation: fade-in .3s cubic-bezier(0.16, 1, 0.3, 1) both; }
   </style>
@@ -49,8 +61,9 @@ const { useEffect, useRef, useState } = React;
 /* ===== Constants ===== */
 const GOAL_BTC = 3.0;
 const TARGET_DATE = new Date("2030-12-31T00:00:00+08:00").getTime();
-const SAVE_KEY = "p2030_v4_master_save_final01"; 
-const CACHE_KEY_METRICS = "p2030_v4_metrics_cache_final01";
+
+const SAVE_KEY = "p2030_v4_master_save_final02";
+const CACHE_KEY_METRICS = "p2030_v4_metrics_cache_final02";
 
 const PART = 60;
 const MONTH_PARTS = 3;
@@ -135,9 +148,11 @@ const initialStateNow = () => ({
     reason: null,
     anchorPrice: 0,
     lowPrice: 0,
-    lastSpent: 0  // 本週黑天鵝扣除金額（顯示用）
+    lastSpent: 0
   }
-}); function App() {
+});
+
+function App() {
   const [state, setState] = useState(initialStateNow());
   const [tab, setTab] = useState("home"); // home | convert | sop | system
   const [modal, setModal] = useState(null);
@@ -150,13 +165,15 @@ const initialStateNow = () => ({
   });
 
   const [ui, setUi] = useState({
-    btcPrice: 90000, fngIndex: 50, ethBtcRatio: 0.050, adaBtcRatio: 0.000008,
-    athDrawdownPct: 0, below200w: 0, reboundPct: 0, ma200w: 0, dataSource: "Manual"
+    btcPrice: 90000, fngIndex: 50,
+    ethBtcRatio: 0.050, adaBtcRatio: 0.000008,
+    athDrawdownPct: 0, below200w: 0, reboundPct: 0,
+    ma200w: 0, dataSource: "Manual"
   });
 
   const addLog = (msg, type="info") => {
     const log = { id: Date.now() + Math.random(), date: todayMMDD(), msg, type };
-    setState(prev => ({ ...prev, logs: [log, ...prev.logs].slice(0, 220) }));
+    setState(prev => ({ ...prev, logs: [log, ...prev.logs].slice(0, 260) }));
   };
 
   const updateInput = (name, val) => {
@@ -170,9 +187,7 @@ const initialStateNow = () => ({
     if (!Number.isFinite(n)) n = fallback;
     setUi(p => ({ ...p, [key]: n }));
     return n;
-  };
-
-  /* ===== Load/Save (migration) ===== */
+  };  /* ===== Load/Save (migration) ===== */
   useEffect(() => {
     try {
       const saved = localStorage.getItem(SAVE_KEY);
@@ -186,8 +201,8 @@ const initialStateNow = () => ({
         setState({ ...initialStateNow(), ...parsed });
         addLog("讀取本機存檔完成。", "system");
       } else {
-        // 兼容舊版 v3/v4 key（你之前用過的）
         const legacyKeys = [
+          "p2030_v4_master_save_final01",
           "p2030_v4_master_save",
           "p2030_v3_store_fix02",
           "p2030_v3_store_fix01",
@@ -212,6 +227,62 @@ const initialStateNow = () => ({
   useEffect(() => {
     try { localStorage.setItem(SAVE_KEY, JSON.stringify(state)); } catch(e){}
   }, [state]);
+
+  /* ===== Reset (新增重置鍵) ===== */
+  const doHardReset = () => {
+    try{
+      localStorage.removeItem(SAVE_KEY);
+      localStorage.removeItem(CACHE_KEY_METRICS);
+    }catch(e){}
+
+    const init = initialStateNow();
+    init.logs = [{ id: Date.now(), date: todayMMDD(), msg: "已重置：所有資料清空，回到初始狀態。", type: "system" }];
+
+    setState(init);
+    setUi({
+      btcPrice: 90000, fngIndex: 50,
+      ethBtcRatio: 0.050, adaBtcRatio: 0.000008,
+      athDrawdownPct: 0, below200w: 0, reboundPct: 0,
+      ma200w: 0, dataSource: "Manual"
+    });
+
+    draftRef.current = {
+      btcPrice: "90000", fngIndex: "50", ethBtcRatio: "0.050", adaBtcRatio: "0.000008",
+      athDrawdownPct: "0", below200w: "0", reboundPct: "0", extraReserveAdd: "0"
+    };
+
+    setTimeout(() => {
+      updateInput("btcPrice", "90000");
+      updateInput("fngIndex", "50");
+      updateInput("ethBtcRatio", "0.050");
+      updateInput("adaBtcRatio", "0.000008");
+      updateInput("athDrawdownPct", "0");
+      updateInput("reboundPct", "0");
+      updateInput("extraReserveAdd", "0");
+    }, 0);
+
+    setModal({ title:"已重置", body:"✅ 所有資料已清空。\n建議你先匯出備份再操作重置。"});
+  };
+
+  const resetAll = () => {
+    setModal({
+      title: "確認重置",
+      body: (
+        <div className="space-y-3">
+          <div className="text-sm text-slate-300">
+            這會清空：持倉、預備金、黑天鵝進度、Logs、週鎖。\n
+            <span className="text-yellow-300 font-bold">建議先匯出備份。</span>
+          </div>
+          <button
+            onClick={() => doHardReset()}
+            className="w-full py-3 bg-red-600 hover:bg-red-500 rounded-xl text-white font-bold"
+          >
+            我確定要重置
+          </button>
+        </div>
+      )
+    });
+  };
 
   /* ===== Backup Tools ===== */
   const exportData = async () => {
@@ -272,7 +343,6 @@ const initialStateNow = () => ({
     if(!isoA || !isoB) return false;
     const a = new Date(isoA);
     const b = new Date(isoB);
-    // ISO week: approximate by comparing (year, weekNumber)
     const weekKey = (d) => {
       const date = new Date(Date.UTC(d.getFullYear(), d.getMonth(), d.getDate()));
       const dayNum = date.getUTCDay() || 7;
@@ -362,9 +432,7 @@ const initialStateNow = () => ({
     }
   };
 
-  useEffect(() => { setTimeout(autofillFromApis, 100); }, []); // auto fetch once
-
-  /* ===== Actions ===== */
+  useEffect(() => { setTimeout(autofillFromApis, 120); }, []); // auto fetch once  /* ===== Actions ===== */
   const addReserve = () => {
     const add = Math.max(0, Math.floor(parseNum(draftRef.current.extraReserveAdd, 0)));
     if(!(add>0)) return setModal({title:"錯誤", body:"請輸入正整數"});
@@ -381,6 +449,32 @@ const initialStateNow = () => ({
     addLog(`提領 ${fmt(amt,6)} BTC 至冷錢包`, "secure");
     triggerConfetti();
     setModal({title:"🎉 防禦增強", body:`成功提領 ${fmt(amt,6)} BTC 至冷錢包！`});
+  };
+
+  const snipeConvert = (asset) => {
+    const ratio = asset==="ETH" ? Number(ui.ethBtcRatio||0) : Number(ui.adaBtcRatio||0);
+    const target = asset==="ETH" ? ETH_SNIPE_RATIO : ADA_SNIPE_RATIO;
+    if(ratio < target){
+      setModal({title:"未達門檻", body:`${asset}/BTC 需 ≥ ${target}\n目前：${ratio}`});
+      return;
+    }
+    const holding = asset==="ETH" ? state.eth : state.ada;
+    if(!(holding>0)) { setModal({title:"資產不足", body:`目前 ${asset} 為 0`}); return; }
+
+    const got = prompt(`狙擊成功：${asset} 全換 BTC\n請輸入實際獲得 BTC 數量：`);
+    if(!got) return;
+    const btc = parseNum(got, NaN);
+    if(!(btc>0)) { setModal({title:"輸入錯誤", body:"數值無效"}); return; }
+
+    setState(p => ({
+      ...p,
+      btcHot: (p.btcHot||0) + btc,
+      eth: asset==="ETH" ? 0 : p.eth,
+      ada: asset==="ADA" ? 0 : p.ada
+    }));
+    addLog(`狙擊成功：${asset} → ${btc.toFixed(6)} BTC`, "success");
+    triggerConfetti();
+    setModal({title:"🎉 任務完成", body:`已將 ${asset} 轉換為 ${btc.toFixed(6)} BTC`});
   };
 
   const executeWeekly = () => {
@@ -419,7 +513,6 @@ const initialStateNow = () => ({
     const usdtSpent = spend * PART;
     const usdtSaved = save * PART;
 
-    // Black Swan (manual inputs may be used)
     const athDD = clamp(parseNum(ui.athDrawdownPct, 0), 0, 100);
     const below200w = Number(ui.below200w||0) === 1;
     const blackSwanTriggered = (fng < 20) || (athDD >= 30) || below200w;
@@ -428,7 +521,6 @@ const initialStateNow = () => ({
     let reserveAfterSave = (state.usdtReserve || 0) + usdtSaved;
     let blackSwanSpent = 0;
 
-    // stop rule
     if (blackSwan.active){
       const prevLow = blackSwan.lowPrice > 0 ? blackSwan.lowPrice : price;
       const newLow = Math.min(prevLow, price);
@@ -443,14 +535,12 @@ const initialStateNow = () => ({
       }
     }
 
-    // start black swan
     if(!blackSwan.active && blackSwanTriggered && reserveAfterSave > 0){
       const reason = (fng < 20) ? "FNG<20" : (athDD >= 30 ? "6M回撤>=30%" : "跌破200W");
       blackSwan = { ...blackSwan, active:true, remainingWeeks: BLACK_SWAN_WEEKS, weeklyBudget: reserveAfterSave / BLACK_SWAN_WEEKS, startedAtISO: new Date().toISOString(), reason, anchorPrice: price, lowPrice: price };
       addLog(`黑天鵝啟動：${reason}｜預備金分4週買入`, "alert");
     }
 
-    // spend black swan
     if(blackSwan.active && blackSwan.remainingWeeks > 0){
       const spendNow = Math.max(0, Math.min(reserveAfterSave, blackSwan.weeklyBudget));
       if(spendNow > 0){
@@ -472,7 +562,6 @@ const initialStateNow = () => ({
     setState({
       ...state,
       btcHot: (state.btcHot || 0) + btcBought,
-      btcCold: state.btcCold,
       usdtReserve: reserveAfterSave,
       consecutiveGreedWeeks: greed,
       monthPartsRemaining: Math.max(0, parts - spend - save),
@@ -501,7 +590,9 @@ const initialStateNow = () => ({
         </div>
       )
     });
-  };  /* ===== UI Components ===== */
+  };
+
+  /* ===== UI Components ===== */
   const Card = ({children, className=""}) => (
     <div className={`bg-slate-800 border border-slate-700/50 rounded-2xl p-5 shadow-lg ${className}`}>{children}</div>
   );
@@ -516,13 +607,16 @@ const initialStateNow = () => ({
   const InputField = ({id, label, defaultVal, onCommit}) => (
     <div className="space-y-1">
       <label className="text-xs text-slate-400 ml-1">{label}</label>
-      <input id={id} type="text" inputMode="decimal" defaultValue={defaultVal} onInput={(e)=>{ draftRef.current[id] = e.target.value; }} onBlur={(e)=> onCommit(e.target.value)}
-        className="w-full bg-slate-900 border border-slate-700 rounded-xl px-4 py-3 text-lg font-mono focus:outline-none focus:border-emerald-500 transition-colors" />
+      <input id={id} type="text" inputMode="decimal" defaultValue={defaultVal}
+        onInput={(e)=>{ draftRef.current[id] = e.target.value; }}
+        onBlur={(e)=> onCommit(e.target.value)}
+        className="w-full bg-slate-900 border border-slate-700 rounded-xl px-4 py-3 text-lg font-mono focus:outline-none focus:border-emerald-500 transition-colors"
+      />
     </div>
   );
 
   return (
-    <div className="min-h-screen pb-safe pt-safe bg-slate-900 text-slate-100 select-none">
+    <div className="min-h-screen pt-safe bg-slate-900 text-slate-100 select-none">
       {/* Header (click to toggle privacy) */}
       <div className="sticky top-0 z-20 bg-slate-900/90 backdrop-blur border-b border-slate-800 px-5 py-4 shadow-2xl">
         <div className="flex justify-between items-end mb-3">
@@ -544,13 +638,15 @@ const initialStateNow = () => ({
         </div>
       </div>
 
-      <div className="p-4 space-y-4 max-w-lg mx-auto pb-24">
+      {/* ✅ 內容區：用 pb-content 留出 TabBar 空間 */}
+      <div className="p-4 space-y-4 max-w-lg mx-auto pb-content">
         {/* Assets */}
         <div className="grid grid-cols-2 gap-3">
           <Card className="relative overflow-hidden">
             <div className="text-xs text-slate-400">熱錢包 (Hot)</div>
             <div className="text-xl font-mono font-bold text-emerald-300 my-1">{privacyMode ? "****" : fmt(state.btcHot)}</div>
-            <button onClick={moveCold} disabled={!(state.btcHot >= 0.05)} className={`w-full text-xs rounded py-2 font-bold border transition-all ${state.btcHot >= 0.05 ? "bg-emerald-900/50 text-emerald-300 border-emerald-800 animate-pulse" : "bg-slate-900 text-slate-600 border-slate-700 opacity-50"}`}>
+            <button onClick={moveCold} disabled={!(state.btcHot >= 0.05)}
+              className={`w-full text-xs rounded py-2 font-bold border transition-all ${state.btcHot >= 0.05 ? "bg-emerald-900/50 text-emerald-300 border-emerald-800 animate-pulse" : "bg-slate-900 text-slate-600 border-slate-700 opacity-50"}`}>
               {state.btcHot >= 0.05 ? "提領至冷錢包 ➔" : "未達 0.05 門檻"}
             </button>
           </Card>
@@ -568,7 +664,8 @@ const initialStateNow = () => ({
               <div className="text-xs text-yellow-500/80 mb-1">預備金 (USDT)</div>
               <div className="text-2xl font-mono font-bold text-yellow-400">{privacyMode ? "****" : Math.floor(state.usdtReserve).toLocaleString()}</div>
               <div className="mt-3 flex gap-2">
-                <input id="extraReserveAdd" defaultValue="0" type="number" onInput={(e)=>draftRef.current.extraReserveAdd=e.target.value} className="w-24 bg-slate-900 text-xs p-2 rounded border border-slate-700"/>
+                <input id="extraReserveAdd" defaultValue="0" type="number" onInput={(e)=>draftRef.current.extraReserveAdd=e.target.value}
+                  className="w-24 bg-slate-900 text-xs p-2 rounded border border-slate-700"/>
                 <button onClick={addReserve} className="text-xs bg-slate-700 px-3 rounded font-bold">＋預備金</button>
               </div>
             </div>
@@ -579,7 +676,6 @@ const initialStateNow = () => ({
             </div>
           </div>
 
-          {/* 黑天鵝進度 */}
           <div className="mt-4 bg-slate-900/60 border border-slate-700/50 rounded-xl p-3">
             <div className="flex justify-between text-xs text-slate-400">
               <span>黑天鵝狀態</span>
@@ -598,16 +694,6 @@ const initialStateNow = () => ({
           </div>
         </Card>
 
-        {/* Navigation */}
-        <div className="fixed bottom-0 left-0 right-0 bg-slate-900/95 backdrop-blur border-t border-slate-800 pb-safe z-30">
-          <div className="flex max-w-lg mx-auto">
-            <TabBtn id="home" label="行動" icon="⚡" />
-            <TabBtn id="convert" label="狙擊" icon="🎯" />
-            <TabBtn id="sop" label="憲法" icon="📜" />
-            <TabBtn id="system" label="系統" icon="💾" />
-          </div>
-        </div>
-
         {/* HOME */}
         {tab === "home" && (
           <div className="space-y-4 animate-fade-in">
@@ -616,12 +702,15 @@ const initialStateNow = () => ({
                 <h3 className="font-bold text-white flex items-center gap-2">
                   <span className="w-2 h-2 rounded-full bg-emerald-500 animate-pulse-green"></span> 每週決策
                 </h3>
-                <button onClick={autofillFromApis} className="text-xs bg-slate-700 px-3 py-1.5 rounded-lg text-slate-300 active:scale-95 transition-transform">📡 更新</button>
+                <button onClick={autofillFromApis}
+                  className="text-xs bg-slate-700 px-3 py-1.5 rounded-lg text-slate-300 active:scale-95 transition-transform">📡 更新</button>
               </div>
 
               <div className="grid grid-cols-2 gap-4 mb-4">
-                <InputField id="btcPrice" label="BTC 價格" defaultVal={draftRef.current.btcPrice} onCommit={(v)=>{ updateInput("btcPrice", v); commitUiNumber("btcPrice", v, ui.btcPrice); }} />
-                <InputField id="fngIndex" label="恐貪指數" defaultVal={draftRef.current.fngIndex} onCommit={(v)=>{ const n = clamp(Math.round(parseNum(v, ui.fngIndex)), 0, 100); updateInput("fngIndex", n); setUi(p=>({ ...p, fngIndex: n })); }} />
+                <InputField id="btcPrice" label="BTC 價格" defaultVal={draftRef.current.btcPrice}
+                  onCommit={(v)=>{ updateInput("btcPrice", v); commitUiNumber("btcPrice", v, ui.btcPrice); }} />
+                <InputField id="fngIndex" label="恐貪指數" defaultVal={draftRef.current.fngIndex}
+                  onCommit={(v)=>{ const n = clamp(Math.round(parseNum(v, ui.fngIndex)), 0, 100); updateInput("fngIndex", n); setUi(p=>({ ...p, fngIndex: n })); }} />
               </div>
 
               <div className="bg-slate-900/50 rounded-xl p-3 mb-4 border border-slate-700/50">
@@ -631,23 +720,33 @@ const initialStateNow = () => ({
                     {ui.fngIndex} / 100
                   </span>
                 </div>
-                <input type="range" min="0" max="100" value={ui.fngIndex} onChange={(e)=>{ const n = parseInt(e.target.value,10); setUi(p=>({ ...p, fngIndex: n })); updateInput("fngIndex", n); }} className="w-full h-2 bg-slate-700 rounded-lg appearance-none cursor-pointer accent-emerald-500" />
+                <input type="range" min="0" max="100" value={ui.fngIndex}
+                  onChange={(e)=>{ const n = parseInt(e.target.value,10); setUi(p=>({ ...p, fngIndex: n })); updateInput("fngIndex", n); }}
+                  className="w-full h-2 bg-slate-700 rounded-lg appearance-none cursor-pointer accent-emerald-500" />
               </div>
 
-              <button onClick={()=>setShowAdvanced(!showAdvanced)} className="w-full mb-3 text-xs text-slate-500 py-2 border border-dashed border-slate-700 rounded-lg">{showAdvanced ? "收起進階設定" : "進階設定 (手動回撤/200W)"}</button>
+              <button onClick={()=>setShowAdvanced(!showAdvanced)}
+                className="w-full mb-3 text-xs text-slate-500 py-2 border border-dashed border-slate-700 rounded-lg">
+                {showAdvanced ? "收起進階設定" : "進階設定 (手動回撤/200W)"}
+              </button>
+
               {showAdvanced && (
                 <div className="grid grid-cols-2 gap-3 mb-4 animate-fade-in">
-                  <InputField id="athDrawdownPct" label="6M 回撤%（手動）" defaultVal={draftRef.current.athDrawdownPct} onCommit={(v)=>{ updateInput("athDrawdownPct", v); commitUiNumber("athDrawdownPct", v, ui.athDrawdownPct); }} />
-                  <button onClick={()=> setUi(p=>({ ...p, below200w: !p.below200w }))} className={`text-xs rounded border ${ui.below200w ? "bg-red-900 border-red-500 text-red-300" : "bg-slate-900 border-slate-700 text-slate-500"}`}>跌破200W: {ui.below200w?"ON":"OFF"}</button>
+                  <InputField id="athDrawdownPct" label="6M 回撤%（手動）" defaultVal={draftRef.current.athDrawdownPct}
+                    onCommit={(v)=>{ updateInput("athDrawdownPct", v); commitUiNumber("athDrawdownPct", v, ui.athDrawdownPct); }} />
+                  <button onClick={()=> setUi(p=>({ ...p, below200w: !p.below200w }))}
+                    className={`text-xs rounded border ${ui.below200w ? "bg-red-900 border-red-500 text-red-300" : "bg-slate-900 border-slate-700 text-slate-500"}`}>
+                    跌破200W: {ui.below200w?"ON":"OFF"}
+                  </button>
                 </div>
               )}
 
-              <button onClick={executeWeekly} className={`w-full py-4 text-white font-bold rounded-xl shadow-lg transition-all ${canExecuteThisWeek ? "bg-emerald-600 hover:bg-emerald-500" : "bg-slate-700 text-slate-500 opacity-70"}`}>
+              <button onClick={executeWeekly}
+                className={`w-full py-4 text-white font-bold rounded-xl shadow-lg transition-all ${canExecuteThisWeek ? "bg-emerald-600 hover:bg-emerald-500" : "bg-slate-700 text-slate-500 opacity-70"}`}>
                 {canExecuteThisWeek ? "執行本週決策" : "本週已執行（鎖定）"}
               </button>
             </Card>
 
-            {/* Logs */}
             <div className="px-2">
               <div className="text-[10px] text-slate-500 mb-2 font-mono uppercase">System Logs</div>
               <div className="space-y-1.5 font-mono text-xs max-h-32 overflow-y-auto pr-2">
@@ -678,7 +777,7 @@ const initialStateNow = () => ({
           </div>
         )}
 
-        {/* SOP full */}
+        {/* SOP */}
         {tab === "sop" && (
           <div className="space-y-4 animate-fade-in text-sm text-slate-300 leading-relaxed pb-8">
             <Card>
@@ -729,12 +828,8 @@ const initialStateNow = () => ({
             </Card>
             <Card>
               <h3 className="font-bold text-yellow-400 mb-2">第五章：自我契約</h3>
-              <div className="text-xs italic text-slate-300">
-                「市場瘋狂時，我冷靜存錢；市場崩盤時，我進攻抄底。」
-              </div>
-              <div className="text-xs mt-2">
-                修正條款：2030 前要改策略，寫理由並延遲 30 天再執行。
-              </div>
+              <div className="text-xs italic text-slate-300">「市場瘋狂時，我冷靜存錢；市場崩盤時，我進攻抄底。」</div>
+              <div className="text-xs mt-2">修正條款：2030 前要改策略，寫理由並延遲 30 天再執行。</div>
             </Card>
           </div>
         )}
@@ -752,6 +847,14 @@ const initialStateNow = () => ({
             </Card>
 
             <Card>
+              <h3 className="font-bold text-white mb-2">🧯 重置</h3>
+              <p className="text-xs text-slate-400 mb-4">清空所有資料（含 Logs / 週鎖）。請先匯出備份。</p>
+              <button onClick={resetAll} className="w-full bg-red-600 hover:bg-red-500 py-3 rounded-xl font-bold text-sm text-white">
+                重置全部資料
+              </button>
+            </Card>
+
+            <Card>
               <h3 className="font-bold text-white mb-2">👁️ 隱私</h3>
               <div className="flex justify-between items-center">
                 <span className="text-sm text-slate-300">隱私模式（隱藏金額）</span>
@@ -763,15 +866,26 @@ const initialStateNow = () => ({
 
             <Card>
               <h3 className="font-bold text-white mb-2">🧾 系統資訊</h3>
-              <div className="text-xs text-slate-400">Build：v4final01｜本週鎖：{canExecuteThisWeek ? "未執行" : "已執行"}</div>
+              <div className="text-xs text-slate-400">Build：final02｜本週鎖：{canExecuteThisWeek ? "未執行" : "已執行"}</div>
             </Card>
           </div>
         )}
       </div>
 
+      {/* ✅ TabBar：不再用 pb-safe，改 pb-tabbar（修正「按鈕往上移」） */}
+      <div className="fixed bottom-0 left-0 right-0 bg-slate-900/95 backdrop-blur border-t border-slate-800 pb-tabbar z-30">
+        <div className="flex max-w-lg mx-auto px-2 py-2">
+          <TabBtn id="home" label="行動" icon="⚡" />
+          <TabBtn id="convert" label="狙擊" icon="🎯" />
+          <TabBtn id="sop" label="憲法" icon="📜" />
+          <TabBtn id="system" label="系統" icon="💾" />
+        </div>
+      </div>
+
       {/* Modal */}
       {modal && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/80 backdrop-blur-sm animate-fade-in" onClick={(e)=>e.target===e.currentTarget && setModal(null)}>
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/80 backdrop-blur-sm animate-fade-in"
+             onClick={(e)=>e.target===e.currentTarget && setModal(null)}>
           <div className="bg-slate-800 border border-slate-600 w-full max-w-sm rounded-2xl p-6 shadow-2xl relative">
             <h3 className="text-xl font-bold text-white mb-4">{modal.title}</h3>
             <div className="text-slate-300 mb-6 whitespace-pre-wrap">{modal.body}</div>

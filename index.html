@@ -40,7 +40,7 @@ const { useEffect, useRef, useState } = React;
 /* ===== Constants ===== */
 const GOAL_BTC = 3.0;
 const TARGET_DATE = new Date("2030-12-31T00:00:00+08:00").getTime();
-const SAVE_KEY = "p2030_v3_store_fix01"; // ✅ 新版 key（避免舊資料殘留造成怪狀況）
+const SAVE_KEY = "p2030_v3_store_fix02";
 
 const PART = 60;
 const MONTH_PARTS = 3;
@@ -56,7 +56,7 @@ const ADA_SNIPE_RATIO = 0.0000085;
 const ETH_ALERT_RATIO = 0.045;
 const ADA_ALERT_RATIO = 0.000008;
 
-const CACHE_KEY_METRICS = "p2030_v3_metrics_cache_fix01";
+const CACHE_KEY_METRICS = "p2030_v3_metrics_cache_fix02";
 
 /* ===== Helpers ===== */
 const clamp = (v, min, max) => Math.min(max, Math.max(min, v));
@@ -90,7 +90,6 @@ const parseLooseJson = (text) => {
 const initialStateNow = () => ({
   btcHot: 0.0,
   btcCold: 0.0,
-
   usdtReserve: 0,
 
   eth: 34.0,
@@ -175,7 +174,6 @@ function App() {
         const parsed = JSON.parse(saved);
         const nowKey = monthKeyNow();
 
-        // 開啟就自動補月份額（你 1/26→2月要自動更新，就是這裡）
         if (parsed?.lastMonthKey && parsed.lastMonthKey !== nowKey) {
           parsed.monthPartsRemaining = MONTH_PARTS;
           parsed.lastMonthKey = nowKey;
@@ -184,7 +182,7 @@ function App() {
 
         setState({ ...initialStateNow(), ...parsed });
       } else {
-        addLog("系統初始化完成 (v3 修正版)", "system");
+        addLog("系統初始化完成 (v3 fix02)", "system");
       }
     } catch(e) { console.error(e); }
     // eslint-disable-next-line
@@ -197,7 +195,16 @@ function App() {
   /* ===== Derived ===== */
   const totalBtc = state.btcHot + state.btcCold;
   const progress = clamp((totalBtc / GOAL_BTC) * 100, 0, 100);
-  const daysLeft = Math.max(0, Math.ceil((TARGET_DATE - Date.now())/(1000*60*60*24)));  /* ===== Network (robust) ===== */
+  const daysLeft = Math.max(0, Math.ceil((TARGET_DATE - Date.now())/(1000*60*60*24)));
+
+  // stablePct：只拿預備金估算（符合你現階段策略：不換USDT，但仍可能有預備金）
+  const portfolioUsdApprox =
+    (totalBtc * Number(ui.btcPrice||0)) +
+    (Number(state.eth||0) * Number(ui.ethBtcRatio||0) * Number(ui.btcPrice||0)) +
+    (Number(state.ada||0) * Number(ui.adaBtcRatio||0) * Number(ui.btcPrice||0)) +
+    Number(state.usdtReserve||0);
+
+  const stablePct = portfolioUsdApprox > 0 ? (Number(state.usdtReserve||0) / portfolioUsdApprox * 100) : 0;  /* ===== Network (robust) ===== */
   const fetchTextWithTimeout = async (url, ms) => {
     const ctrl = new AbortController();
     const t = setTimeout(() => ctrl.abort(), ms);
@@ -209,7 +216,6 @@ function App() {
   };
 
   const fetchJsonSmart = async (url) => {
-    // direct -> allorigins -> jina
     try { return parseLooseJson(await fetchTextWithTimeout(url, 9000)); } catch(e) {}
     try { return parseLooseJson(await fetchTextWithTimeout("https://api.allorigins.win/raw?url=" + encodeURIComponent(url), 12000)); } catch(e) {}
     const j = "https://r.jina.ai/http://" + url.replace(/^https?:\/\//, "");
@@ -225,9 +231,7 @@ function App() {
     throw last;
   };
 
-  // 200W MA
   const calc200wMA = async () => {
-    // 1) CryptoCompare histoweek
     try{
       const cc = await withRetry(() => fetchJsonSmart("https://min-api.cryptocompare.com/data/v2/histoweek?fsym=BTC&tsym=USD&limit=220"), 2);
       if (cc?.Response === "Error") throw new Error(cc?.Message || "CC Error");
@@ -239,8 +243,6 @@ function App() {
         if (Number.isFinite(ma) && ma>0) return ma;
       }
     }catch(e){}
-
-    // 2) CoinGecko 2000 days
     const cg = await withRetry(() => fetchJsonSmart("https://api.coingecko.com/api/v3/coins/bitcoin/market_chart?vs_currency=usd&days=2000&interval=daily"), 2);
     const prices = (cg?.prices||[]).map(p=>Number(p?.[1])||0).filter(x=>x>0);
     if (prices.length < 800) return 0;
@@ -249,9 +251,7 @@ function App() {
     return (Number.isFinite(ma) && ma>0) ? ma : 0;
   };
 
-  // 6M ATH drawdown (%)
   const calc6mDD = async (nowPrice) => {
-    // 1) CryptoCompare histoday highs
     try{
       const cc = await withRetry(() => fetchJsonSmart("https://min-api.cryptocompare.com/data/v2/histoday?fsym=BTC&tsym=USD&limit=200"), 2);
       if (cc?.Response === "Error") throw new Error(cc?.Message || "CC Error");
@@ -262,8 +262,6 @@ function App() {
         if (hi>0) return Math.max(0, ((hi-nowPrice)/hi)*100);
       }
     }catch(e){}
-
-    // 2) CoinGecko 200 days
     const cg = await withRetry(() => fetchJsonSmart("https://api.coingecko.com/api/v3/coins/bitcoin/market_chart?vs_currency=usd&days=200&interval=daily"), 2);
     const prices = (cg?.prices||[]).map(p=>Number(p?.[1])||0).filter(x=>x>0);
     if (prices.length < 30 || !(nowPrice>0)) return 0;
@@ -284,15 +282,12 @@ function App() {
     try{ localStorage.setItem(CACHE_KEY_METRICS, JSON.stringify({ ts: Date.now(), ...payload })); }catch(e){}
   };
 
-  /* ===== Auto fetch (runs on load + button) ===== */
   const autofillFromApis = async () => {
     addLog("正在連接衛星數據...", "system");
 
-    // 60 秒快取（避免 Safari 連打失敗）
     const cache = readCache();
     if(cache && (Date.now() - cache.ts) < 60_000){
       const { btc, fng, ethBtc, adaBtc, dd6m, ma200w, below200w, src } = cache;
-
       if(btc) { updateInput("btcPrice", Math.round(btc)); setUi(p=>({ ...p, btcPrice: btc })); }
       if(Number.isFinite(fng)) { updateInput("fngIndex", fng); setUi(p=>({ ...p, fngIndex: fng })); }
       if(ethBtc) { updateInput("ethBtcRatio", ethBtc.toFixed(5)); setUi(p=>({ ...p, ethBtcRatio: ethBtc })); }
@@ -301,17 +296,14 @@ function App() {
       if(Number.isFinite(ma200w)) setUi(p=>({ ...p, ma200w }));
       if(typeof below200w === "number") setUi(p=>({ ...p, below200w }));
       setUi(p=>({ ...p, dataSource: src || "Cache" }));
-
       addLog("已使用快取數據（1分鐘內）", "system");
       return;
     }
 
     try {
-      // 1) FNG
       const fngData = await withRetry(() => fetchJsonSmart("https://api.alternative.me/fng/?limit=1&format=json"), 2);
       const fng = clamp(parseInt(fngData?.data?.[0]?.value ?? "50", 10), 0, 100);
 
-      // 2) Prices: CC -> CG
       let btc=0, eth=0, ada=0, src="CC";
       try{
         const cc = await withRetry(() => fetchJsonSmart("https://min-api.cryptocompare.com/data/pricemulti?fsyms=BTC,ETH,ADA&tsyms=USD"), 2);
@@ -329,12 +321,10 @@ function App() {
       const ethBtc = eth>0 ? (eth/btc) : 0;
       const adaBtc = ada>0 ? (ada/btc) : 0;
 
-      // 3) 200W + 6M DD
       const ma200w = await calc200wMA();
       const below200w = (ma200w>0 && btc < ma200w) ? 1 : 0;
       const dd6m = await calc6mDD(btc);
 
-      // 4) Apply
       updateInput("btcPrice", Math.round(btc));
       updateInput("fngIndex", fng);
       if(ethBtc>0) updateInput("ethBtcRatio", ethBtc.toFixed(5));
@@ -354,7 +344,7 @@ function App() {
         dataSource: src
       }));
 
-      // 反彈%：黑天鵝期間自動更新
+      // 黑天鵝期間自動更新反彈%
       if(state.blackSwan?.active){
         const low = state.blackSwan.lowPrice>0 ? state.blackSwan.lowPrice : btc;
         const newLow = Math.min(low, btc);
@@ -367,8 +357,8 @@ function App() {
       writeCache({ btc, fng, ethBtc, adaBtc, dd6m: Number(dd6m.toFixed(2)), ma200w, below200w, src });
       addLog(`數據更新成功 (${src})`, "success");
 
-      if(ethBtc >= ETH_ALERT_RATIO) addLog(`ETH/BTC 接近警戒值 (${ethBtc.toFixed(5)})`, "alert");
-      if(adaBtc >= ADA_ALERT_RATIO) addLog(`ADA/BTC 接近警戒值 (${adaBtc.toFixed(7)})`, "alert");
+      if(ethBtc >= ETH_ALERT_RATIO) addLog(`提醒：ETH/BTC ≥ ${ETH_ALERT_RATIO}（準備狙擊 ${ETH_SNIPE_RATIO}）`, "alert");
+      if(adaBtc >= ADA_ALERT_RATIO) addLog(`提醒：ADA/BTC ≥ ${ADA_ALERT_RATIO}（準備狙擊 ${ADA_SNIPE_RATIO}）`, "alert");
 
     } catch(e) {
       console.error(e);
@@ -376,7 +366,7 @@ function App() {
     }
   };
 
-  // ✅ 進 App 自動抓一次（你說的「沒自己抓數據」就是這行）
+  // ✅ 進 App 自動抓一次
   useEffect(() => { setTimeout(() => { autofillFromApis(); }, 50); }, []); // eslint-disable-line
 
   /* ===== Actions ===== */
@@ -387,6 +377,13 @@ function App() {
     addLog(`手動補充預備金：+${add} U`, "success");
     draftRef.current.extraReserveAdd = "0";
     updateInput("extraReserveAdd", "0");
+  };
+
+  const moveCold = () => {
+    if(state.btcHot < 0.05) return setModal({title:"拒絕", body:"未達 0.05 BTC 門檻"});
+    const amt = state.btcHot;
+    setState(p => ({ ...p, btcCold: p.btcCold + amt, btcHot: 0 }));
+    addLog(`提領 ${fmt(amt,6)} BTC 至冷錢包`, "secure");
   };  const executeWeekly = () => {
     const price = parseNum(ui.btcPrice, 0);
     const fng = clamp(parseNum(ui.fngIndex, 50), 0, 100);
@@ -403,14 +400,15 @@ function App() {
       lastMonthKey = nowKey;
     }
 
+    // DCA + long-bull insurance
     let action = "", spend=0, save=0, greed = state.consecutiveGreedWeeks;
 
-    if(fng < 20) { action="極度恐慌 (A)：3買0存"; spend=3; save=0; greed=0; }
-    else if(fng <= 40) { action="恐懼 (B)：2買1存"; spend=2; save=1; greed=0; }
-    else if(fng <= 75) { action="中性 (C)：1買2存"; spend=1; save=2; greed=0; }
+    if(fng < 20) { action="A 極度恐慌：3買0存"; spend=3; save=0; greed=0; }
+    else if(fng <= 40) { action="B 恐懼：2買1存"; spend=2; save=1; greed=0; }
+    else if(fng <= 75) { action="C 中性/偏貪：1買2存"; spend=1; save=2; greed=0; }
     else {
-      if(greed >= GREED_WEEKS_FOR_INSURANCE) { action="貪婪 (D)【長牛保險】：1買2存"; spend=1; save=2; greed++; }
-      else { action="貪婪 (D)：0買3存"; spend=0; save=3; greed++; }
+      if(greed >= GREED_WEEKS_FOR_INSURANCE) { action="D 貪婪【長牛保險】：1買2存"; spend=1; save=2; greed++; }
+      else { action="D 貪婪：0買3存"; spend=0; save=3; greed++; }
     }
 
     if(spend + save > parts) {
@@ -423,7 +421,7 @@ function App() {
     const usdtSpent = spend * PART;
     const usdtSaved = save * PART;
 
-    // ===== Black Swan =====
+    // Black swan
     const athDD = clamp(parseNum(ui.athDrawdownPct, 0), 0, 100);
     const below200w = Number(ui.below200w||0) === 1;
     const blackSwanTriggered = (fng < 20) || (athDD >= 30) || below200w;
@@ -437,7 +435,6 @@ function App() {
       const newLow = Math.min(prevLow, price);
       const rb = reboundPctFrom(newLow, price);
       blackSwan.lowPrice = newLow;
-
       setUi(p=>({ ...p, reboundPct: Number(rb.toFixed(2)) }));
       updateInput("reboundPct", rb.toFixed(2));
 
@@ -493,7 +490,7 @@ function App() {
 
     setState(newState);
 
-    addLog(`週報執行：${action}`, usdtSpent > 0 ? "success" : "warning");
+    addLog(`週報：${action}`, usdtSpent > 0 ? "success" : "warning");
     if(newMonth) addLog("新月份額度已重置 (3/3)", "system");
     if(usdtSaved>0) addLog(`存入預備金：+${usdtSaved}U`, "info");
     if(totalSpent>0) addLog(`本週投入：${Math.floor(totalSpent)}U → ${btcBought.toFixed(6)} BTC`, "success");
@@ -513,13 +510,6 @@ function App() {
         </div>
       )
     });
-  };
-
-  const moveCold = () => {
-    if(state.btcHot < 0.05) return setModal({title:"拒絕", body:"未達 0.05 BTC 門檻"});
-    const amt = state.btcHot;
-    setState(p => ({ ...p, btcCold: p.btcCold + amt, btcHot: 0 }));
-    addLog(`提領 ${fmt(amt,6)} BTC 至冷錢包`, "secure");
   };
 
   const snipeConvert = (asset) => {
@@ -566,7 +556,7 @@ function App() {
   );
 
   const TabBtn = ({id, label}) => (
-    <button 
+    <button
       onClick={() => setTab(id)}
       className={`flex-1 py-3 text-sm font-bold rounded-xl transition-all ${
         tab === id ? 'bg-slate-700 text-emerald-400' : 'text-slate-500 hover:bg-slate-800'
@@ -593,7 +583,6 @@ function App() {
     </div>
   );
 
-  /* ===== Render ===== */
   const totalBtcLabel = fmt(totalBtc);
   const fngBucket =
     ui.fngIndex < 20 ? {label:"極度恐慌", cls:"text-red-400"} :
@@ -614,6 +603,9 @@ function App() {
           <div className="text-right">
             <div className="text-[10px] text-slate-500">剩餘天數</div>
             <div className="text-sm font-bold text-emerald-400">{daysLeft} 天</div>
+            <div className={`text-[10px] mt-1 ${stablePct>30 ? "text-yellow-300" : "text-slate-500"}`}>
+              穩定幣占比≈{stablePct.toFixed(1)}%
+            </div>
           </div>
         </div>
         <div className="h-2 bg-slate-800 rounded-full overflow-hidden">
@@ -622,17 +614,28 @@ function App() {
       </div>
 
       <div className="p-4 space-y-4 max-w-lg mx-auto">
-
         <div className="grid grid-cols-2 gap-3">
           <Card className="relative overflow-hidden group">
             <div className="text-xs text-slate-400">熱錢包 (Hot)</div>
             <div className="text-xl font-mono font-bold text-emerald-300">{fmt(state.btcHot)}</div>
-            {state.btcHot >= 0.05 && (
-              <button onClick={moveCold} className="mt-2 w-full text-xs bg-emerald-900/50 text-emerald-400 border border-emerald-800 rounded py-1 animate-pulse">
-                可提領至冷錢包
-              </button>
-            )}
+
+            {/* ✅ 1) 永遠顯示提領按鈕（未達0.05就disabled） */}
+            <button
+              onClick={moveCold}
+              disabled={!(state.btcHot >= 0.05)}
+              className={`mt-3 w-full text-xs rounded py-2 font-bold border ${
+                state.btcHot >= 0.05
+                  ? "bg-emerald-900/50 text-emerald-300 border-emerald-800 hover:bg-emerald-800/40"
+                  : "bg-slate-900 text-slate-500 border-slate-700 cursor-not-allowed"
+              }`}
+            >
+              提領至冷錢包（門檻 0.05 BTC）
+            </button>
+            <div className="text-[10px] text-slate-500 mt-2">
+              {state.btcHot >= 0.05 ? "符合鐵律：立刻提領。" : "未達門檻：先累積以節省手續費。"}
+            </div>
           </Card>
+
           <Card>
             <div className="text-xs text-slate-400">冷錢包 (Cold)</div>
             <div className="text-xl font-mono font-bold text-blue-300">{fmt(state.btcCold)}</div>
@@ -685,25 +688,10 @@ function App() {
               </div>
 
               <div className="grid grid-cols-2 gap-4 mb-4">
-                <InputField
-                  id="btcPrice"
-                  label="BTC 價格"
-                  defaultVal={draftRef.current.btcPrice}
-                  onCommit={(v)=>{
-                    updateInput("btcPrice", v);
-                    commitUiNumber("btcPrice", v, ui.btcPrice);
-                  }}
-                />
-                <InputField
-                  id="fngIndex"
-                  label="恐貪指數"
-                  defaultVal={draftRef.current.fngIndex}
-                  onCommit={(v)=>{
-                    const n = clamp(Math.round(parseNum(v, ui.fngIndex)), 0, 100);
-                    updateInput("fngIndex", n);
-                    setUi(p=>({ ...p, fngIndex: n }));
-                  }}
-                />
+                <InputField id="btcPrice" label="BTC 價格" defaultVal={draftRef.current.btcPrice}
+                  onCommit={(v)=>{ updateInput("btcPrice", v); commitUiNumber("btcPrice", v, ui.btcPrice); }} />
+                <InputField id="fngIndex" label="恐貪指數" defaultVal={draftRef.current.fngIndex}
+                  onCommit={(v)=>{ const n = clamp(Math.round(parseNum(v, ui.fngIndex)), 0, 100); updateInput("fngIndex", n); setUi(p=>({ ...p, fngIndex: n })); }} />
               </div>
 
               <div className="bg-slate-900/50 rounded-xl p-3 mb-4 border border-slate-700/50">
@@ -722,11 +710,8 @@ function App() {
                 />
               </div>
 
-              <button
-                onClick={()=>setShowAdvanced(v=>!v)}
-                className="w-full mb-3 py-2 bg-slate-800 border border-slate-700 rounded-xl text-slate-300 font-bold"
-              >
-                {showAdvanced ? "收起進階手動欄位" : "展開進階手動欄位（可手動改匯率/回撤/200W）"}
+              <button onClick={()=>setShowAdvanced(v=>!v)} className="w-full mb-3 py-2 bg-slate-800 border border-slate-700 rounded-xl text-slate-300 font-bold">
+                {showAdvanced ? "收起進階手動欄位" : "展開進階手動欄位（可手動改匯率/回撤/200W/反彈）"}
               </button>
 
               {showAdvanced && (
@@ -763,35 +748,6 @@ function App() {
                 執行指令 (EXECUTE)
               </button>
             </Card>
-
-            <Card className={(ui.athDrawdownPct >= 30 || Number(ui.below200w)===1 || ui.fngIndex<20) ? "border-red-500/50 bg-red-900/10" : "opacity-90"}>
-              <div className="text-xs font-bold text-slate-400 mb-2 uppercase tracking-wider">風險監控 (黑天鵝)</div>
-              <div className="grid grid-cols-3 gap-2 text-center">
-                <div className="bg-slate-900 p-2 rounded-lg">
-                  <div className="text-[10px] text-slate-500">6M 回撤</div>
-                  <div className={`font-mono font-bold ${ui.athDrawdownPct>=30 ? 'text-red-400' : 'text-slate-300'}`}>{Number(ui.athDrawdownPct).toFixed(2)}%</div>
-                </div>
-                <div className="bg-slate-900 p-2 rounded-lg">
-                  <div className="text-[10px] text-slate-500">200W</div>
-                  <div className="font-mono font-bold text-slate-300">{ui.ma200w>0 ? Math.round(ui.ma200w).toLocaleString() : "?"}</div>
-                </div>
-                <div className="bg-slate-900 p-2 rounded-lg">
-                  <div className="text-[10px] text-slate-500">跌破200W</div>
-                  <div className={`font-mono font-bold ${Number(ui.below200w)===1 ? 'text-red-400' : 'text-slate-300'}`}>{Number(ui.below200w)===1 ? "是" : "否"}</div>
-                </div>
-              </div>
-
-              <div className="mt-3 grid grid-cols-2 gap-2 text-center">
-                <div className="bg-slate-900 p-2 rounded-lg">
-                  <div className="text-[10px] text-slate-500">FNG</div>
-                  <div className={`font-mono font-bold ${ui.fngIndex<20 ? 'text-red-400' : 'text-slate-300'}`}>{ui.fngIndex}</div>
-                </div>
-                <div className="bg-slate-900 p-2 rounded-lg">
-                  <div className="text-[10px] text-slate-500">反彈%</div>
-                  <div className={`font-mono font-bold ${Number(ui.reboundPct)>15 ? 'text-red-400' : 'text-slate-300'}`}>{Number(ui.reboundPct).toFixed(2)}%</div>
-                </div>
-              </div>
-            </Card>
           </div>
         )}
 
@@ -799,15 +755,11 @@ function App() {
           <div className="space-y-4 animate-fade-in">
             <Card className="border-l-4 border-l-fuchsia-500">
               <h3 className="font-bold text-fuchsia-400 mb-2">ETH 狙擊手</h3>
-              <div className="flex justify-between items-end mb-2">
-                <div className="text-xs text-slate-400">當前匯率: <span className="text-white font-mono">{Number(ui.ethBtcRatio).toFixed(5)}</span></div>
-                <div className="text-xs text-slate-400">目標: <span className="text-fuchsia-300 font-mono">{ETH_SNIPE_RATIO}</span></div>
+              <div className="text-xs text-slate-400 mb-2">
+                當前匯率 <span className="text-white mono">{Number(ui.ethBtcRatio).toFixed(5)}</span> ｜ 目標 <span className="text-fuchsia-300 mono">{ETH_SNIPE_RATIO}</span>
               </div>
-              <div className="h-2 bg-slate-900 rounded-full overflow-hidden mb-3">
-                <div className="h-full bg-fuchsia-600 transition-all" style={{width: `${Math.min(100, (Number(ui.ethBtcRatio)/ETH_SNIPE_RATIO)*100)}%`}} />
-              </div>
-              <div className="text-xs text-slate-500 leading-relaxed bg-slate-900 p-2 rounded mb-3">
-                持有 {fmt(state.eth, 2)} ETH。等待期間請確保全倉質押。
+              <div className="text-xs text-slate-500 bg-slate-900 p-2 rounded mb-3">
+                持有 {fmt(state.eth,2)} ETH。等待期間：<span className="text-emerald-300 font-bold">全倉質押</span>（利息對抗時間）。
               </div>
               <button
                 onClick={()=>snipeConvert("ETH")}
@@ -824,15 +776,11 @@ function App() {
 
             <Card className="border-l-4 border-l-blue-500">
               <h3 className="font-bold text-blue-400 mb-2">ADA 狙擊手</h3>
-              <div className="flex justify-between items-end mb-2">
-                <div className="text-xs text-slate-400">當前匯率: <span className="text-white font-mono">{Number(ui.adaBtcRatio).toFixed(7)}</span></div>
-                <div className="text-xs text-slate-400">目標: <span className="text-blue-300 font-mono">{ADA_SNIPE_RATIO}</span></div>
+              <div className="text-xs text-slate-400 mb-2">
+                當前匯率 <span className="text-white mono">{Number(ui.adaBtcRatio).toFixed(7)}</span> ｜ 目標 <span className="text-blue-300 mono">{ADA_SNIPE_RATIO}</span>
               </div>
-              <div className="h-2 bg-slate-900 rounded-full overflow-hidden mb-3">
-                <div className="h-full bg-blue-600 transition-all" style={{width: `${Math.min(100, (Number(ui.adaBtcRatio)/ADA_SNIPE_RATIO)*100)}%`}} />
-              </div>
-              <div className="text-xs text-slate-500 leading-relaxed bg-slate-900 p-2 rounded mb-3">
-                持有 {Math.floor(state.ada).toLocaleString()} ADA。等待期間請委託/流動質押。
+              <div className="text-xs text-slate-500 bg-slate-900 p-2 rounded mb-3">
+                持有 {Math.floor(state.ada).toLocaleString()} ADA。等待期間：<span className="text-emerald-300 font-bold">委託/流動質押</span>。
               </div>
               <button
                 onClick={()=>snipeConvert("ADA")}
@@ -851,6 +799,12 @@ function App() {
 
         {tab === "sop" && (
           <div className="space-y-4 animate-fade-in text-sm text-slate-300 leading-relaxed">
+            {/* ✅ 2) 憲法完整版本 */}
+            <Card>
+              <h3 className="font-bold text-yellow-400 mb-2">🛡️ 2030 累積 3 BTC《終極防禦・執行憲法》</h3>
+              <div className="text-xs text-slate-400">執行期間：2026.01 - 2030.12｜執行人：陳祥豪</div>
+            </Card>
+
             <Card>
               <h3 className="font-bold text-yellow-400 mb-2">核心信條</h3>
               <ul className="list-disc pl-4 space-y-1 marker:text-yellow-600">
@@ -860,9 +814,59 @@ function App() {
               </ul>
             </Card>
 
-            <div className="text-center text-[10px] text-slate-600 font-mono">
-              Build v3.fix01
-            </div>
+            <Card>
+              <h3 className="font-bold text-emerald-400 mb-2">第一章：定投進攻模組（DCA）</h3>
+              <div className="text-slate-300">
+                每月 180 USDT（3 份，每份 60U），每週看一次恐貪指數：
+              </div>
+              <div className="mt-2 text-xs bg-slate-900 border border-slate-700 rounded-xl p-3">
+                <div>A &lt; 20：3買0存（+ 黑天鵝觸發）</div>
+                <div>B 20-40：2買1存</div>
+                <div>C 40-75：1買2存</div>
+                <div>D &gt; 75：0買3存</div>
+                <div className="mt-2 text-yellow-300 font-bold">長牛保險：恐貪 &gt; 75 連續 2 個月（= 8 週）後 → 1買2存</div>
+              </div>
+            </Card>
+
+            <Card>
+              <h3 className="font-bold text-fuchsia-400 mb-2">第二章：狙擊手轉換模組（只換 BTC）</h3>
+              <ul className="list-disc pl-4 space-y-1 marker:text-fuchsia-300">
+                <li>核心原則：不換 USDT，直接換 BTC 鎖定戰果。</li>
+                <li>時間策略：無限期等待，不到目標價絕不離場；用質押利息對抗時間。</li>
+                <li>ETH：ETH/BTC ≥ 0.058 → 直接全換 BTC（等待期間全倉質押）。</li>
+                <li>ADA：ADA/BTC ≥ 0.0000085 → 直接全換 BTC（等待期間委託/流動質押）。</li>
+              </ul>
+            </Card>
+
+            <Card>
+              <h3 className="font-bold text-red-400 mb-2">第三章：終極防禦模組（黑天鵝預備金）</h3>
+              <div className="text-slate-300">觸發任一條件 → 預備金分 4 週等額買入：</div>
+              <ul className="list-disc pl-4 mt-2 space-y-1 marker:text-red-300">
+                <li>BTC 近 6 個月 ATH 回撤 ≥ 30%</li>
+                <li>恐貪指數 &lt; 20</li>
+                <li>BTC 跌破 200W MA</li>
+              </ul>
+              <div className="mt-2 text-yellow-300 font-bold">停止機制：買入期間反彈 &gt; 15% → 立刻停止黑天鵝買入</div>
+            </Card>
+
+            <Card>
+              <h3 className="font-bold text-sky-300 mb-2">第四章：鐵血紀律與安全（SOP）</h3>
+              <ul className="list-disc pl-4 space-y-1 marker:text-sky-300">
+                <li>冷錢包鐵律：交易所（熱錢包）BTC ≥ 0.05 → 立即提領到冷錢包。</li>
+                <li>穩定幣風控：轉換期除外，穩定幣占比不超過 30%（此 App 顯示占比提醒）。</li>
+                <li>注意力管理：ETH/BTC 0.045、ADA/BTC 0.000008、恐貪週推播；警報沒響就回生活。</li>
+              </ul>
+            </Card>
+
+            <Card>
+              <h3 className="font-bold text-yellow-400 mb-2">第五章：自我契約</h3>
+              <div className="italic text-slate-300">
+                「這套系統已經包含了所有的恐懼與貪婪。市場瘋狂時叫我冷靜存錢；市場崩盤時叫我進攻抄底。」
+              </div>
+              <div className="mt-2 text-slate-300">
+                憲法修正條款：若 2030 前想修改本計畫，必須寫下理由並延遲 30 天再執行。
+              </div>
+            </Card>
           </div>
         )}
 

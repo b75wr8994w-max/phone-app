@@ -2,22 +2,32 @@
 <html lang="zh-TW">
 <head>
   <meta charset="UTF-8" />
-  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover, maximum-scale=1" />
-  <title>Project 2030：執行憲法 v3</title>
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover, maximum-scale=1, user-scalable=no" />
+
+  <!-- PWA：iOS 加入主畫面後接近原生 -->
+  <meta name="apple-mobile-web-app-capable" content="yes">
+  <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+  <meta name="theme-color" content="#0f172a">
+  <link rel="apple-touch-icon" href="data:image/svg+xml,<svg xmlns=%22http://www.w3.org/2000/svg%22 viewBox=%220 0 100 100%22><text y=%22.9em%22 font-size=%2290%22>🛡️</text></svg>">
+
+  <title>Project 2030：執行憲法</title>
 
   <script src="https://cdn.tailwindcss.com"></script>
   <script src="https://unpkg.com/react@18/umd/react.production.min.js" crossorigin></script>
   <script src="https://unpkg.com/react-dom@18/umd/react-dom.production.min.js" crossorigin></script>
   <script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
+  <!-- 彩帶特效 -->
+  <script src="https://cdn.jsdelivr.net/npm/canvas-confetti@1.6.0/dist/confetti.browser.min.js"></script>
 
   <style>
-    body { background-color:#0b1220; color:#f1f5f9; -webkit-tap-highlight-color:transparent;
+    body { background-color:#0f172a; color:#f1f5f9; -webkit-tap-highlight-color:transparent;
       font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,Helvetica,Arial,sans-serif; }
     .mono { font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", "Courier New", monospace; }
     .pb-safe { padding-bottom: calc(90px + env(safe-area-inset-bottom)); }
-    ::-webkit-scrollbar { width: 6px; }
+    .pt-safe { padding-top: env(safe-area-inset-top); }
+    ::-webkit-scrollbar { width: 4px; }
     ::-webkit-scrollbar-track { background: #1e293b; }
-    ::-webkit-scrollbar-thumb { background: #475569; border-radius: 3px; }
+    ::-webkit-scrollbar-thumb { background: #475569; border-radius: 2px; }
 
     @keyframes pulse-green {
       0% { box-shadow: 0 0 0 0 rgba(16,185,129,0.7); }
@@ -25,9 +35,8 @@
       100% { box-shadow: 0 0 0 0 rgba(16,185,129,0); }
     }
     .animate-pulse-green { animation: pulse-green 2s infinite; }
-
-    @keyframes fade-in { from { opacity: 0; transform: translateY(4px);} to { opacity: 1; transform: translateY(0);} }
-    .animate-fade-in { animation: fade-in .25s ease-out both; }
+    @keyframes fade-in { from { opacity: 0; transform: translateY(8px);} to { opacity: 1; transform: translateY(0);} }
+    .animate-fade-in { animation: fade-in .3s cubic-bezier(0.16, 1, 0.3, 1) both; }
   </style>
 </head>
 
@@ -40,7 +49,8 @@ const { useEffect, useRef, useState } = React;
 /* ===== Constants ===== */
 const GOAL_BTC = 3.0;
 const TARGET_DATE = new Date("2030-12-31T00:00:00+08:00").getTime();
-const SAVE_KEY = "p2030_v3_store_fix02";
+const SAVE_KEY = "p2030_v4_master_save_final01"; 
+const CACHE_KEY_METRICS = "p2030_v4_metrics_cache_final01";
 
 const PART = 60;
 const MONTH_PARTS = 3;
@@ -56,8 +66,6 @@ const ADA_SNIPE_RATIO = 0.0000085;
 const ETH_ALERT_RATIO = 0.045;
 const ADA_ALERT_RATIO = 0.000008;
 
-const CACHE_KEY_METRICS = "p2030_v3_metrics_cache_fix02";
-
 /* ===== Helpers ===== */
 const clamp = (v, min, max) => Math.min(max, Math.max(min, v));
 const parseNum = (s, fallback = NaN) => {
@@ -71,19 +79,32 @@ const monthKeyNow = () => {
 };
 const todayMMDD = () => new Date().toLocaleDateString('zh-TW', {month:'2-digit', day:'2-digit'});
 const reboundPctFrom = (low, now) => (low > 0 && now > 0) ? ((now - low) / low) * 100 : 0;
-
 const sleep = (ms) => new Promise(r => setTimeout(r, ms));
 
 const parseLooseJson = (text) => {
   const s = String(text || "");
-  const i1 = s.indexOf("{");
-  const i2 = s.indexOf("[");
+  const i1 = s.indexOf("{"); const i2 = s.indexOf("[");
   let i = -1;
-  if (i1 === -1) i = i2;
-  else if (i2 === -1) i = i1;
-  else i = Math.min(i1, i2);
+  if (i1 === -1) i = i2; else if (i2 === -1) i = i1; else i = Math.min(i1, i2);
   if (i < 0) throw new Error("JSON not found");
   return JSON.parse(s.slice(i).trim());
+};
+
+/* ===== FX ===== */
+const triggerConfetti = () => {
+  if (typeof confetti !== "function") return;
+  const count = 200;
+  const defaults = { origin: { y: 0.7 } };
+  function fire(particleRatio, opts) {
+    confetti(Object.assign({}, defaults, opts, {
+      particleCount: Math.floor(count * particleRatio)
+    }));
+  }
+  fire(0.25, { spread: 26, startVelocity: 55 });
+  fire(0.2, { spread: 60 });
+  fire(0.35, { spread: 100, decay: 0.91, scalar: 0.8 });
+  fire(0.1, { spread: 120, startVelocity: 25, decay: 0.92, scalar: 1.2 });
+  fire(0.1, { spread: 120, startVelocity: 45 });
 };
 
 /* ===== Initial State ===== */
@@ -91,7 +112,6 @@ const initialStateNow = () => ({
   btcHot: 0.0,
   btcCold: 0.0,
   usdtReserve: 0,
-
   eth: 34.0,
   ada: 74000.0,
 
@@ -104,6 +124,9 @@ const initialStateNow = () => ({
   monthPartsRemaining: MONTH_PARTS,
   lastMonthKey: monthKeyNow(),
 
+  // 本週鎖：避免一週按兩次
+  lastWeeklyExecISO: null,
+
   blackSwan: {
     active: false,
     remainingWeeks: 0,
@@ -111,54 +134,37 @@ const initialStateNow = () => ({
     startedAtISO: null,
     reason: null,
     anchorPrice: 0,
-    lowPrice: 0
+    lowPrice: 0,
+    lastSpent: 0  // 本週黑天鵝扣除金額（顯示用）
   }
-});
-
-/* ===== Main Component ===== */
-function App() {
+}); function App() {
   const [state, setState] = useState(initialStateNow());
-  const [tab, setTab] = useState("home"); // home | convert | sop
+  const [tab, setTab] = useState("home"); // home | convert | sop | system
   const [modal, setModal] = useState(null);
   const [showAdvanced, setShowAdvanced] = useState(false);
+  const [privacyMode, setPrivacyMode] = useState(false);
 
-  // Uncontrolled inputs refs (avoid iOS keyboard collapse)
   const draftRef = useRef({
-    btcPrice: "90000",
-    fngIndex: "50",
-    ethBtcRatio: "0.050",
-    adaBtcRatio: "0.000008",
-    athDrawdownPct: "0",
-    below200w: "0",
-    reboundPct: "0",
-    extraReserveAdd: "0"
+    btcPrice: "90000", fngIndex: "50", ethBtcRatio: "0.050", adaBtcRatio: "0.000008",
+    athDrawdownPct: "0", below200w: "0", reboundPct: "0", extraReserveAdd: "0"
   });
 
   const [ui, setUi] = useState({
-    btcPrice: 90000,
-    fngIndex: 50,
-    ethBtcRatio: 0.050,
-    adaBtcRatio: 0.000008,
-    athDrawdownPct: 0,
-    below200w: 0,
-    reboundPct: 0,
-    ma200w: 0,
-    dataSource: "Manual"
+    btcPrice: 90000, fngIndex: 50, ethBtcRatio: 0.050, adaBtcRatio: 0.000008,
+    athDrawdownPct: 0, below200w: 0, reboundPct: 0, ma200w: 0, dataSource: "Manual"
   });
 
   const addLog = (msg, type="info") => {
     const log = { id: Date.now() + Math.random(), date: todayMMDD(), msg, type };
-    setState(prev => ({ ...prev, logs: [log, ...prev.logs].slice(0, 200) }));
+    setState(prev => ({ ...prev, logs: [log, ...prev.logs].slice(0, 220) }));
   };
 
-  // update input helper
   const updateInput = (name, val) => {
     draftRef.current[name] = String(val);
     const el = document.getElementById(name);
     if(el) el.value = String(val);
   };
 
-  // commit numeric from draft -> ui
   const commitUiNumber = (key, raw, fallback) => {
     let n = parseNum(raw, fallback);
     if (!Number.isFinite(n)) n = fallback;
@@ -166,23 +172,38 @@ function App() {
     return n;
   };
 
-  /* ===== Load/Save ===== */
+  /* ===== Load/Save (migration) ===== */
   useEffect(() => {
     try {
       const saved = localStorage.getItem(SAVE_KEY);
       if(saved) {
         const parsed = JSON.parse(saved);
         const nowKey = monthKeyNow();
-
         if (parsed?.lastMonthKey && parsed.lastMonthKey !== nowKey) {
           parsed.monthPartsRemaining = MONTH_PARTS;
           parsed.lastMonthKey = nowKey;
-          addLog("月份已更新：自動補充本月份額 3/3", "system");
         }
-
         setState({ ...initialStateNow(), ...parsed });
+        addLog("讀取本機存檔完成。", "system");
       } else {
-        addLog("系統初始化完成 (v3 fix02)", "system");
+        // 兼容舊版 v3/v4 key（你之前用過的）
+        const legacyKeys = [
+          "p2030_v4_master_save",
+          "p2030_v3_store_fix02",
+          "p2030_v3_store_fix01",
+          "p2030_v3_store"
+        ];
+        let migrated = null;
+        for (const k of legacyKeys){
+          const v = localStorage.getItem(k);
+          if(v){ migrated = JSON.parse(v); break; }
+        }
+        if(migrated){
+          setState({ ...initialStateNow(), ...migrated });
+          addLog("已從舊版本繼承資料。", "system");
+        } else {
+          addLog("Project 2030 啟動。目標：3 BTC", "system");
+        }
       }
     } catch(e) { console.error(e); }
     // eslint-disable-next-line
@@ -192,19 +213,80 @@ function App() {
     try { localStorage.setItem(SAVE_KEY, JSON.stringify(state)); } catch(e){}
   }, [state]);
 
+  /* ===== Backup Tools ===== */
+  const exportData = async () => {
+    const payload = JSON.stringify({ schema:"p2030-backup-v1", exportedAtISO: new Date().toISOString(), state }, null, 2);
+    try{
+      await navigator.clipboard.writeText(payload);
+      setModal({title:"匯出成功", body:"✅ 已複製到剪貼簿。\n請貼到記事本/雲端保存。"});
+    }catch(e){
+      setModal({
+        title:"請手動複製",
+        body: (
+          <textarea readOnly className="w-full h-56 bg-black/40 border border-slate-700 rounded-xl p-3 text-xs mono text-slate-200">
+            {payload}
+          </textarea>
+        )
+      });
+    }
+  };
+
+  const importData = () => {
+    setModal({
+      title:"還原備份",
+      body: (
+        <div className="space-y-3">
+          <div className="text-xs text-slate-400">貼上你之前匯出的備份 JSON：</div>
+          <textarea id="importBox" className="w-full h-56 bg-black/40 border border-slate-700 rounded-xl p-3 text-xs mono text-slate-200" placeholder="貼上 JSON..." />
+          <button
+            onClick={()=>{
+              try{
+                const el = document.getElementById("importBox");
+                const obj = JSON.parse(el.value || "{}");
+                const st = obj?.schema==="p2030-backup-v1" ? obj.state : obj;
+                if(!(st && typeof st.btcHot === "number")) throw new Error("bad");
+                setState({ ...initialStateNow(), ...st });
+                addLog("已從備份還原資料。", "success");
+                setModal({title:"還原成功", body:"✅ 已套用備份資料。"});
+              }catch(e){
+                setModal({title:"還原失敗", body:"❌ JSON 格式錯誤或不是本 App 的備份。"});
+              }
+            }}
+            className="w-full py-3 bg-sky-600 hover:bg-sky-500 rounded-xl text-white font-bold"
+          >
+            匯入並覆蓋
+          </button>
+        </div>
+      )
+    });
+  };
+
   /* ===== Derived ===== */
   const totalBtc = state.btcHot + state.btcCold;
   const progress = clamp((totalBtc / GOAL_BTC) * 100, 0, 100);
   const daysLeft = Math.max(0, Math.ceil((TARGET_DATE - Date.now())/(1000*60*60*24)));
+  const portfolioUsdApprox = (totalBtc * ui.btcPrice) + (state.eth * ui.ethBtcRatio * ui.btcPrice) + (state.ada * ui.adaBtcRatio * ui.btcPrice) + state.usdtReserve;
+  const stablePct = portfolioUsdApprox > 0 ? (state.usdtReserve / portfolioUsdApprox * 100) : 0;
 
-  // stablePct：只拿預備金估算（符合你現階段策略：不換USDT，但仍可能有預備金）
-  const portfolioUsdApprox =
-    (totalBtc * Number(ui.btcPrice||0)) +
-    (Number(state.eth||0) * Number(ui.ethBtcRatio||0) * Number(ui.btcPrice||0)) +
-    (Number(state.ada||0) * Number(ui.adaBtcRatio||0) * Number(ui.btcPrice||0)) +
-    Number(state.usdtReserve||0);
+  const isSameISOWeek = (isoA, isoB) => {
+    if(!isoA || !isoB) return false;
+    const a = new Date(isoA);
+    const b = new Date(isoB);
+    // ISO week: approximate by comparing (year, weekNumber)
+    const weekKey = (d) => {
+      const date = new Date(Date.UTC(d.getFullYear(), d.getMonth(), d.getDate()));
+      const dayNum = date.getUTCDay() || 7;
+      date.setUTCDate(date.getUTCDate() + 4 - dayNum);
+      const yearStart = new Date(Date.UTC(date.getUTCFullYear(),0,1));
+      const weekNo = Math.ceil((((date - yearStart) / 86400000) + 1)/7);
+      return `${date.getUTCFullYear()}-W${weekNo}`;
+    };
+    return weekKey(a) === weekKey(b);
+  };
 
-  const stablePct = portfolioUsdApprox > 0 ? (Number(state.usdtReserve||0) / portfolioUsdApprox * 100) : 0;  /* ===== Network (robust) ===== */
+  const canExecuteThisWeek = !isSameISOWeek(state.lastWeeklyExecISO, new Date().toISOString());
+
+  /* ===== API (prices + FNG) ===== */
   const fetchTextWithTimeout = async (url, ms) => {
     const ctrl = new AbortController();
     const t = setTimeout(() => ctrl.abort(), ms);
@@ -225,154 +307,67 @@ function App() {
   const withRetry = async (fn, tries=3) => {
     let last = null;
     for (let i=0;i<tries;i++){
-      try { return await fn(); }
-      catch(e){ last = e; await sleep([600,1400,2600][i] ?? 2600); }
+      try { return await fn(); } catch(e){ last = e; await sleep([600,1400,2600][i] ?? 2600); }
     }
     throw last;
-  };
-
-  const calc200wMA = async () => {
-    try{
-      const cc = await withRetry(() => fetchJsonSmart("https://min-api.cryptocompare.com/data/v2/histoweek?fsym=BTC&tsym=USD&limit=220"), 2);
-      if (cc?.Response === "Error") throw new Error(cc?.Message || "CC Error");
-      const arr = cc?.Data?.Data || [];
-      const closes = arr.map(x=>Number(x?.close)||0).filter(x=>x>0);
-      if (closes.length >= 200) {
-        const last200 = closes.slice(-200);
-        const ma = last200.reduce((s,x)=>s+x,0) / last200.length;
-        if (Number.isFinite(ma) && ma>0) return ma;
-      }
-    }catch(e){}
-    const cg = await withRetry(() => fetchJsonSmart("https://api.coingecko.com/api/v3/coins/bitcoin/market_chart?vs_currency=usd&days=2000&interval=daily"), 2);
-    const prices = (cg?.prices||[]).map(p=>Number(p?.[1])||0).filter(x=>x>0);
-    if (prices.length < 800) return 0;
-    const last1400 = prices.length>1400 ? prices.slice(-1400) : prices;
-    const ma = last1400.reduce((s,x)=>s+x,0) / last1400.length;
-    return (Number.isFinite(ma) && ma>0) ? ma : 0;
-  };
-
-  const calc6mDD = async (nowPrice) => {
-    try{
-      const cc = await withRetry(() => fetchJsonSmart("https://min-api.cryptocompare.com/data/v2/histoday?fsym=BTC&tsym=USD&limit=200"), 2);
-      if (cc?.Response === "Error") throw new Error(cc?.Message || "CC Error");
-      const arr = cc?.Data?.Data || [];
-      const highs = arr.map(x=>Number(x?.high)||0).filter(x=>x>0);
-      if (highs.length >= 30 && nowPrice>0) {
-        const hi = Math.max(...highs.slice(-180));
-        if (hi>0) return Math.max(0, ((hi-nowPrice)/hi)*100);
-      }
-    }catch(e){}
-    const cg = await withRetry(() => fetchJsonSmart("https://api.coingecko.com/api/v3/coins/bitcoin/market_chart?vs_currency=usd&days=200&interval=daily"), 2);
-    const prices = (cg?.prices||[]).map(p=>Number(p?.[1])||0).filter(x=>x>0);
-    if (prices.length < 30 || !(nowPrice>0)) return 0;
-    const hi = Math.max(...prices);
-    return hi>0 ? Math.max(0, ((hi-nowPrice)/hi)*100) : 0;
-  };
-
-  const readCache = () => {
-    try{
-      const raw = localStorage.getItem(CACHE_KEY_METRICS);
-      if(!raw) return null;
-      const obj = JSON.parse(raw);
-      if(!obj?.ts) return null;
-      return obj;
-    }catch(e){ return null; }
-  };
-  const writeCache = (payload) => {
-    try{ localStorage.setItem(CACHE_KEY_METRICS, JSON.stringify({ ts: Date.now(), ...payload })); }catch(e){}
   };
 
   const autofillFromApis = async () => {
     addLog("正在連接衛星數據...", "system");
 
-    const cache = readCache();
+    const cache = (() => { try { return JSON.parse(localStorage.getItem(CACHE_KEY_METRICS)); } catch { return null; } })();
     if(cache && (Date.now() - cache.ts) < 60_000){
-      const { btc, fng, ethBtc, adaBtc, dd6m, ma200w, below200w, src } = cache;
-      if(btc) { updateInput("btcPrice", Math.round(btc)); setUi(p=>({ ...p, btcPrice: btc })); }
-      if(Number.isFinite(fng)) { updateInput("fngIndex", fng); setUi(p=>({ ...p, fngIndex: fng })); }
-      if(ethBtc) { updateInput("ethBtcRatio", ethBtc.toFixed(5)); setUi(p=>({ ...p, ethBtcRatio: ethBtc })); }
-      if(adaBtc) { updateInput("adaBtcRatio", adaBtc.toFixed(7)); setUi(p=>({ ...p, adaBtcRatio: adaBtc })); }
-      if(Number.isFinite(dd6m)) { updateInput("athDrawdownPct", dd6m.toFixed(2)); setUi(p=>({ ...p, athDrawdownPct: dd6m })); }
-      if(Number.isFinite(ma200w)) setUi(p=>({ ...p, ma200w }));
-      if(typeof below200w === "number") setUi(p=>({ ...p, below200w }));
+      const { btc, fng, ethBtc, adaBtc, src } = cache;
+      if(btc){ updateInput("btcPrice", Math.round(btc)); setUi(p=>({ ...p, btcPrice: btc })); }
+      if(Number.isFinite(fng)){ updateInput("fngIndex", fng); setUi(p=>({ ...p, fngIndex: fng })); }
+      if(ethBtc){ updateInput("ethBtcRatio", ethBtc.toFixed(5)); setUi(p=>({ ...p, ethBtcRatio: ethBtc })); }
+      if(adaBtc){ updateInput("adaBtcRatio", adaBtc.toFixed(7)); setUi(p=>({ ...p, adaBtcRatio: adaBtc })); }
       setUi(p=>({ ...p, dataSource: src || "Cache" }));
-      addLog("已使用快取數據（1分鐘內）", "system");
+      addLog("使用快取數據（1分鐘內）", "system");
       return;
     }
 
     try {
-      const fngData = await withRetry(() => fetchJsonSmart("https://api.alternative.me/fng/?limit=1&format=json"), 2);
+      const fngData = await withRetry(() => fetchJsonSmart("https://api.alternative.me/fng/?limit=1&format=json"));
       const fng = clamp(parseInt(fngData?.data?.[0]?.value ?? "50", 10), 0, 100);
 
       let btc=0, eth=0, ada=0, src="CC";
       try{
-        const cc = await withRetry(() => fetchJsonSmart("https://min-api.cryptocompare.com/data/pricemulti?fsyms=BTC,ETH,ADA&tsyms=USD"), 2);
-        if(cc?.BTC?.USD){ btc = cc.BTC.USD; eth = cc.ETH.USD; ada = cc.ADA.USD; }
-        else throw new Error("CC fail");
+        const cc = await withRetry(() => fetchJsonSmart("https://min-api.cryptocompare.com/data/pricemulti?fsyms=BTC,ETH,ADA&tsyms=USD"));
+        if(cc?.BTC?.USD){ btc = cc.BTC.USD; eth = cc.ETH.USD; ada = cc.ADA.USD; } else throw new Error("CC fail");
       }catch(e){
         src="CG";
-        const cg = await withRetry(() => fetchJsonSmart("https://api.coingecko.com/api/v3/simple/price?ids=bitcoin,ethereum,cardano&vs_currencies=usd"), 2);
-        btc = cg?.bitcoin?.usd ?? 0;
-        eth = cg?.ethereum?.usd ?? 0;
-        ada = cg?.cardano?.usd ?? 0;
+        const cg = await withRetry(() => fetchJsonSmart("https://api.coingecko.com/api/v3/simple/price?ids=bitcoin,ethereum,cardano&vs_currencies=usd"));
+        btc = cg?.bitcoin?.usd ?? 0; eth = cg?.ethereum?.usd ?? 0; ada = cg?.cardano?.usd ?? 0;
       }
       if(!(btc>0)) throw new Error("No Price Data");
 
       const ethBtc = eth>0 ? (eth/btc) : 0;
       const adaBtc = ada>0 ? (ada/btc) : 0;
 
-      const ma200w = await calc200wMA();
-      const below200w = (ma200w>0 && btc < ma200w) ? 1 : 0;
-      const dd6m = await calc6mDD(btc);
-
       updateInput("btcPrice", Math.round(btc));
       updateInput("fngIndex", fng);
       if(ethBtc>0) updateInput("ethBtcRatio", ethBtc.toFixed(5));
       if(adaBtc>0) updateInput("adaBtcRatio", adaBtc.toFixed(7));
-      updateInput("athDrawdownPct", dd6m.toFixed(2));
-      updateInput("below200w", below200w);
 
-      setUi(p => ({
-        ...p,
-        btcPrice: btc,
-        fngIndex: fng,
-        ethBtcRatio: ethBtc>0 ? ethBtc : p.ethBtcRatio,
-        adaBtcRatio: adaBtc>0 ? adaBtc : p.adaBtcRatio,
-        athDrawdownPct: Number(dd6m.toFixed(2)),
-        ma200w: ma200w,
-        below200w: below200w,
-        dataSource: src
-      }));
+      setUi(p => ({ ...p, btcPrice: btc, fngIndex: fng, ethBtcRatio: ethBtc || p.ethBtcRatio, adaBtcRatio: adaBtc || p.adaBtcRatio, dataSource: src }));
+      localStorage.setItem(CACHE_KEY_METRICS, JSON.stringify({ ts: Date.now(), btc, fng, ethBtc, adaBtc, src }));
 
-      // 黑天鵝期間自動更新反彈%
-      if(state.blackSwan?.active){
-        const low = state.blackSwan.lowPrice>0 ? state.blackSwan.lowPrice : btc;
-        const newLow = Math.min(low, btc);
-        const rb = reboundPctFrom(newLow, btc);
-        setState(prev => ({ ...prev, blackSwan: { ...prev.blackSwan, lowPrice: newLow } }));
-        setUi(p=>({ ...p, reboundPct: Number(rb.toFixed(2)) }));
-        updateInput("reboundPct", rb.toFixed(2));
-      }
-
-      writeCache({ btc, fng, ethBtc, adaBtc, dd6m: Number(dd6m.toFixed(2)), ma200w, below200w, src });
       addLog(`數據更新成功 (${src})`, "success");
-
       if(ethBtc >= ETH_ALERT_RATIO) addLog(`提醒：ETH/BTC ≥ ${ETH_ALERT_RATIO}（準備狙擊 ${ETH_SNIPE_RATIO}）`, "alert");
       if(adaBtc >= ADA_ALERT_RATIO) addLog(`提醒：ADA/BTC ≥ ${ADA_ALERT_RATIO}（準備狙擊 ${ADA_SNIPE_RATIO}）`, "alert");
 
     } catch(e) {
-      console.error(e);
       addLog("自動抓取失敗，請手動輸入", "warning");
     }
   };
 
-  // ✅ 進 App 自動抓一次
-  useEffect(() => { setTimeout(() => { autofillFromApis(); }, 50); }, []); // eslint-disable-line
+  useEffect(() => { setTimeout(autofillFromApis, 100); }, []); // auto fetch once
 
   /* ===== Actions ===== */
   const addReserve = () => {
     const add = Math.max(0, Math.floor(parseNum(draftRef.current.extraReserveAdd, 0)));
-    if(!(add>0)) return setModal({title:"錯誤", body:"請輸入要加入的預備金（正整數）"});
+    if(!(add>0)) return setModal({title:"錯誤", body:"請輸入正整數"});
     setState(p => ({ ...p, usdtReserve: (p.usdtReserve||0) + add }));
     addLog(`手動補充預備金：+${add} U`, "success");
     draftRef.current.extraReserveAdd = "0";
@@ -384,7 +379,16 @@ function App() {
     const amt = state.btcHot;
     setState(p => ({ ...p, btcCold: p.btcCold + amt, btcHot: 0 }));
     addLog(`提領 ${fmt(amt,6)} BTC 至冷錢包`, "secure");
-  };  const executeWeekly = () => {
+    triggerConfetti();
+    setModal({title:"🎉 防禦增強", body:`成功提領 ${fmt(amt,6)} BTC 至冷錢包！`});
+  };
+
+  const executeWeekly = () => {
+    if(!canExecuteThisWeek){
+      setModal({title:"本週已執行", body:"已鎖定：本週你已按過一次執行。\n（避免誤扣黑天鵝週數）"});
+      return;
+    }
+
     const price = parseNum(ui.btcPrice, 0);
     const fng = clamp(parseNum(ui.fngIndex, 50), 0, 100);
     if(!(price>0)) return setModal({title:"錯誤", body:"請輸入有效的 BTC 價格"});
@@ -393,14 +397,8 @@ function App() {
     let parts = state.monthPartsRemaining;
     let newMonth = false;
     let lastMonthKey = state.lastMonthKey;
+    if(state.lastMonthKey !== nowKey) { parts = MONTH_PARTS; newMonth = true; lastMonthKey = nowKey; }
 
-    if(state.lastMonthKey !== nowKey) {
-      parts = MONTH_PARTS;
-      newMonth = true;
-      lastMonthKey = nowKey;
-    }
-
-    // DCA + long-bull insurance
     let action = "", spend=0, save=0, greed = state.consecutiveGreedWeeks;
 
     if(fng < 20) { action="A 極度恐慌：3買0存"; spend=3; save=0; greed=0; }
@@ -421,15 +419,16 @@ function App() {
     const usdtSpent = spend * PART;
     const usdtSaved = save * PART;
 
-    // Black swan
+    // Black Swan (manual inputs may be used)
     const athDD = clamp(parseNum(ui.athDrawdownPct, 0), 0, 100);
     const below200w = Number(ui.below200w||0) === 1;
     const blackSwanTriggered = (fng < 20) || (athDD >= 30) || below200w;
 
-    let blackSwan = { ...state.blackSwan };
+    let blackSwan = { ...state.blackSwan, lastSpent: 0 };
     let reserveAfterSave = (state.usdtReserve || 0) + usdtSaved;
     let blackSwanSpent = 0;
 
+    // stop rule
     if (blackSwan.active){
       const prevLow = blackSwan.lowPrice > 0 ? blackSwan.lowPrice : price;
       const newLow = Math.min(prevLow, price);
@@ -437,37 +436,29 @@ function App() {
       blackSwan.lowPrice = newLow;
       setUi(p=>({ ...p, reboundPct: Number(rb.toFixed(2)) }));
       updateInput("reboundPct", rb.toFixed(2));
-
       if (rb > BLACK_SWAN_STOP_REBOUND){
         blackSwan.active = false;
         blackSwan.remainingWeeks = 0;
-        addLog(`黑天鵝停止：反彈 ${rb.toFixed(2)}% > ${BLACK_SWAN_STOP_REBOUND}%`, "warning");
+        addLog(`黑天鵝停止：反彈 ${rb.toFixed(2)}% > 15%`, "warning");
       }
     }
 
-    if(!blackSwan.active && blackSwanTriggered){
-      if(reserveAfterSave > 0){
-        const reason = (fng < 20) ? "FNG<20" : (athDD >= 30 ? "6M回撤>=30%" : "跌破200W");
-        blackSwan = {
-          active: true,
-          remainingWeeks: BLACK_SWAN_WEEKS,
-          weeklyBudget: reserveAfterSave / BLACK_SWAN_WEEKS,
-          startedAtISO: new Date().toISOString(),
-          reason,
-          anchorPrice: price,
-          lowPrice: price
-        };
-        addLog(`黑天鵝啟動：${reason}｜預備金分4週買入`, "alert");
-      }
+    // start black swan
+    if(!blackSwan.active && blackSwanTriggered && reserveAfterSave > 0){
+      const reason = (fng < 20) ? "FNG<20" : (athDD >= 30 ? "6M回撤>=30%" : "跌破200W");
+      blackSwan = { ...blackSwan, active:true, remainingWeeks: BLACK_SWAN_WEEKS, weeklyBudget: reserveAfterSave / BLACK_SWAN_WEEKS, startedAtISO: new Date().toISOString(), reason, anchorPrice: price, lowPrice: price };
+      addLog(`黑天鵝啟動：${reason}｜預備金分4週買入`, "alert");
     }
 
+    // spend black swan
     if(blackSwan.active && blackSwan.remainingWeeks > 0){
       const spendNow = Math.max(0, Math.min(reserveAfterSave, blackSwan.weeklyBudget));
       if(spendNow > 0){
         blackSwanSpent = spendNow;
+        blackSwan.lastSpent = spendNow;
         reserveAfterSave -= spendNow;
         blackSwan.remainingWeeks -= 1;
-        addLog(`黑天鵝買入：動用 ${Math.floor(spendNow)}U（剩 ${blackSwan.remainingWeeks} 週）`, "success");
+        addLog(`黑天鵝買入：${Math.floor(spendNow)}U（剩 ${blackSwan.remainingWeeks} 週）`, "success");
       }
       if(blackSwan.remainingWeeks <= 0){
         blackSwan.active = false;
@@ -478,17 +469,17 @@ function App() {
     const totalSpent = usdtSpent + blackSwanSpent;
     const btcBought = totalSpent > 0 ? (totalSpent / price) : 0;
 
-    const newState = {
+    setState({
       ...state,
       btcHot: (state.btcHot || 0) + btcBought,
+      btcCold: state.btcCold,
       usdtReserve: reserveAfterSave,
       consecutiveGreedWeeks: greed,
       monthPartsRemaining: Math.max(0, parts - spend - save),
       lastMonthKey: lastMonthKey,
-      blackSwan
-    };
-
-    setState(newState);
+      blackSwan,
+      lastWeeklyExecISO: new Date().toISOString()
+    });
 
     addLog(`週報：${action}`, usdtSpent > 0 ? "success" : "warning");
     if(newMonth) addLog("新月份額度已重置 (3/3)", "system");
@@ -500,403 +491,291 @@ function App() {
       body: (
         <div className="space-y-2">
           <div className="text-emerald-400 font-bold">{action}</div>
-          <div className="grid grid-cols-2 gap-2 text-sm">
+          <div className="grid grid-cols-2 gap-2 text-sm text-slate-300">
             <span>投入: ${Math.floor(usdtSpent)}</span>
             <span>存入: ${Math.floor(usdtSaved)}</span>
             <span>黑天鵝: ${Math.floor(blackSwanSpent)}</span>
-            <span>剩份額: {newState.monthPartsRemaining}/3</span>
-            <span className="col-span-2">買入: {btcBought.toFixed(6)} BTC</span>
+            <span>剩份額: {Math.max(0, parts - spend - save)}/3</span>
+            <span className="col-span-2 text-white font-bold text-lg mt-2">買入: {btcBought.toFixed(6)} BTC</span>
           </div>
         </div>
       )
     });
-  };
-
-  const snipeConvert = (asset) => {
-    const ratio = asset==="ETH" ? Number(ui.ethBtcRatio||0) : Number(ui.adaBtcRatio||0);
-    const target = asset==="ETH" ? ETH_SNIPE_RATIO : ADA_SNIPE_RATIO;
-
-    if(ratio < target){
-      return setModal({title:"未達門檻", body:`${asset}/BTC 需 ≥ ${target}（目前 ${ratio}）`});
-    }
-
-    const holding = asset==="ETH" ? state.eth : state.ada;
-    if(!(holding>0)) return setModal({title:"資產不足", body:`目前 ${asset} 持有為 0`});
-
-    const got = prompt(`${asset} 狙擊：全數換 BTC\n請輸入實際換到的 BTC 數量：`, "");
-    if(!got) return;
-    const btc = parseNum(got, NaN);
-    if(!(btc>0)) return setModal({title:"輸入錯誤", body:"BTC 必須 > 0"});
-
-    setState(p => ({
-      ...p,
-      btcHot: (p.btcHot||0) + btc,
-      eth: asset==="ETH" ? 0 : p.eth,
-      ada: asset==="ADA" ? 0 : p.ada
-    }));
-    addLog(`[狙擊手] ${asset} → BTC +${btc.toFixed(6)}（ratio=${ratio}）`, "success");
-    setModal({title:"完成", body:`已完成 ${asset} 狙擊換 BTC：+${btc.toFixed(6)} BTC`});
-  };
-
-  /* ===== Components ===== */
+  };  /* ===== UI Components ===== */
   const Card = ({children, className=""}) => (
-    <div className={`bg-slate-800 border border-slate-700 rounded-2xl p-4 shadow-lg ${className}`}>
-      {children}
-    </div>
+    <div className={`bg-slate-800 border border-slate-700/50 rounded-2xl p-5 shadow-lg ${className}`}>{children}</div>
   );
-
   const Battery = ({level}) => (
-    <div className="flex gap-1">
-      {[1,2,3].map(i => (
-        <div key={i} className={`h-3 w-6 rounded-sm border border-slate-600 ${
-          i <= level ? 'bg-emerald-500 shadow-[0_0_8px_rgba(16,185,129,0.6)]' : 'bg-slate-800'
-        }`} />
-      ))}
-    </div>
+    <div className="flex gap-1">{[1,2,3].map(i => <div key={i} className={`h-2.5 w-5 rounded-sm border border-slate-600 ${i <= level ? 'bg-emerald-500 shadow-[0_0_8px_rgba(16,185,129,0.6)]' : 'bg-slate-800'}`} />)}</div>
   );
-
-  const TabBtn = ({id, label}) => (
-    <button
-      onClick={() => setTab(id)}
-      className={`flex-1 py-3 text-sm font-bold rounded-xl transition-all ${
-        tab === id ? 'bg-slate-700 text-emerald-400' : 'text-slate-500 hover:bg-slate-800'
-      }`}
-    >
-      {label}
+  const TabBtn = ({id, label, icon}) => (
+    <button onClick={() => setTab(id)} className={`flex-1 py-3 text-sm font-bold rounded-xl transition-all flex flex-col items-center justify-center gap-1 ${tab === id ? 'bg-slate-700 text-emerald-400' : 'text-slate-500 hover:bg-slate-800'}`}>
+      <span>{icon}</span><span className="text-xs">{label}</span>
     </button>
   );
-
   const InputField = ({id, label, defaultVal, onCommit}) => (
     <div className="space-y-1">
       <label className="text-xs text-slate-400 ml-1">{label}</label>
-      <input
-        id={id}
-        type="text"
-        inputMode="decimal"
-        defaultValue={defaultVal}
-        onInput={(e)=>{ draftRef.current[id] = e.target.value; }}
-        onBlur={(e)=> onCommit(e.target.value)}
-        className="w-full bg-slate-900 border border-slate-700 rounded-xl px-4 py-3 text-lg font-mono
-                   focus:outline-none focus:border-emerald-500 transition-colors"
-        autoCorrect="off" autoCapitalize="off" spellCheck={false}
-      />
+      <input id={id} type="text" inputMode="decimal" defaultValue={defaultVal} onInput={(e)=>{ draftRef.current[id] = e.target.value; }} onBlur={(e)=> onCommit(e.target.value)}
+        className="w-full bg-slate-900 border border-slate-700 rounded-xl px-4 py-3 text-lg font-mono focus:outline-none focus:border-emerald-500 transition-colors" />
     </div>
   );
 
-  const totalBtcLabel = fmt(totalBtc);
-  const fngBucket =
-    ui.fngIndex < 20 ? {label:"極度恐慌", cls:"text-red-400"} :
-    ui.fngIndex <= 40 ? {label:"恐懼", cls:"text-yellow-400"} :
-    ui.fngIndex <= 75 ? {label:"中性/偏貪", cls:"text-slate-300"} :
-    {label:"貪婪", cls:"text-emerald-400"};
-
   return (
-    <div className="min-h-screen pb-safe">
-      <div className="sticky top-0 z-20 bg-slate-900/90 backdrop-blur border-b border-slate-800 px-4 py-3 shadow-2xl">
-        <div className="flex justify-between items-end mb-2">
-          <div>
-            <div className="text-[10px] text-slate-500 tracking-widest uppercase">Project 2030</div>
-            <div className="text-xl font-black font-mono tracking-tight text-white">
-              {totalBtcLabel} <span className="text-sm text-slate-500">/ {GOAL_BTC} BTC</span>
+    <div className="min-h-screen pb-safe pt-safe bg-slate-900 text-slate-100 select-none">
+      {/* Header (click to toggle privacy) */}
+      <div className="sticky top-0 z-20 bg-slate-900/90 backdrop-blur border-b border-slate-800 px-5 py-4 shadow-2xl">
+        <div className="flex justify-between items-end mb-3">
+          <div onClick={()=>setPrivacyMode(!privacyMode)} className="cursor-pointer">
+            <div className="text-[10px] text-slate-500 tracking-widest uppercase mb-1">Project 2030 {privacyMode ? "🙈" : ""}</div>
+            <div className="text-2xl font-black font-mono tracking-tight text-white flex items-center gap-2">
+              {privacyMode ? "****" : fmt(totalBtc)} <span className="text-sm text-slate-500 font-normal">/ {GOAL_BTC}</span>
             </div>
+            <div className="text-[10px] text-slate-500 mt-1">點擊金額切換隱私模式</div>
           </div>
           <div className="text-right">
-            <div className="text-[10px] text-slate-500">剩餘天數</div>
-            <div className="text-sm font-bold text-emerald-400">{daysLeft} 天</div>
-            <div className={`text-[10px] mt-1 ${stablePct>30 ? "text-yellow-300" : "text-slate-500"}`}>
-              穩定幣占比≈{stablePct.toFixed(1)}%
-            </div>
+            <div className="text-[10px] text-slate-500 mb-1">倒數</div>
+            <div className="text-sm font-bold text-emerald-400 font-mono">{daysLeft} D</div>
+            <div className={`text-[10px] mt-1 ${stablePct>30 ? "text-yellow-300" : "text-slate-500"}`}>穩定幣占比≈{stablePct.toFixed(1)}%</div>
           </div>
         </div>
-        <div className="h-2 bg-slate-800 rounded-full overflow-hidden">
+        <div className="h-1.5 bg-slate-800 rounded-full overflow-hidden">
           <div className="h-full bg-gradient-to-r from-emerald-600 to-green-400 transition-all duration-1000" style={{width: `${progress}%`}} />
         </div>
       </div>
 
-      <div className="p-4 space-y-4 max-w-lg mx-auto">
+      <div className="p-4 space-y-4 max-w-lg mx-auto pb-24">
+        {/* Assets */}
         <div className="grid grid-cols-2 gap-3">
-          <Card className="relative overflow-hidden group">
+          <Card className="relative overflow-hidden">
             <div className="text-xs text-slate-400">熱錢包 (Hot)</div>
-            <div className="text-xl font-mono font-bold text-emerald-300">{fmt(state.btcHot)}</div>
-
-            {/* ✅ 1) 永遠顯示提領按鈕（未達0.05就disabled） */}
-            <button
-              onClick={moveCold}
-              disabled={!(state.btcHot >= 0.05)}
-              className={`mt-3 w-full text-xs rounded py-2 font-bold border ${
-                state.btcHot >= 0.05
-                  ? "bg-emerald-900/50 text-emerald-300 border-emerald-800 hover:bg-emerald-800/40"
-                  : "bg-slate-900 text-slate-500 border-slate-700 cursor-not-allowed"
-              }`}
-            >
-              提領至冷錢包（門檻 0.05 BTC）
+            <div className="text-xl font-mono font-bold text-emerald-300 my-1">{privacyMode ? "****" : fmt(state.btcHot)}</div>
+            <button onClick={moveCold} disabled={!(state.btcHot >= 0.05)} className={`w-full text-xs rounded py-2 font-bold border transition-all ${state.btcHot >= 0.05 ? "bg-emerald-900/50 text-emerald-300 border-emerald-800 animate-pulse" : "bg-slate-900 text-slate-600 border-slate-700 opacity-50"}`}>
+              {state.btcHot >= 0.05 ? "提領至冷錢包 ➔" : "未達 0.05 門檻"}
             </button>
-            <div className="text-[10px] text-slate-500 mt-2">
-              {state.btcHot >= 0.05 ? "符合鐵律：立刻提領。" : "未達門檻：先累積以節省手續費。"}
-            </div>
           </Card>
-
           <Card>
             <div className="text-xs text-slate-400">冷錢包 (Cold)</div>
-            <div className="text-xl font-mono font-bold text-blue-300">{fmt(state.btcCold)}</div>
-            <div className="text-[10px] text-slate-500 mt-1">絕對防禦領域</div>
+            <div className="text-xl font-mono font-bold text-blue-300 my-1">{privacyMode ? "****" : fmt(state.btcCold)}</div>
+            <div className="text-[10px] text-slate-500 mt-2">絕對防禦領域</div>
           </Card>
         </div>
 
-        <Card className="flex justify-between items-center bg-gradient-to-r from-slate-800 to-slate-800/50">
-          <div>
-            <div className="text-xs text-yellow-500/80 mb-1">黑天鵝預備金 (USDT)</div>
-            <div className="text-2xl font-mono font-bold text-yellow-400">${Math.floor(state.usdtReserve).toLocaleString()}</div>
-            <div className="mt-2 flex gap-2">
-              <input
-                id="extraReserveAdd"
-                defaultValue={draftRef.current.extraReserveAdd}
-                inputMode="numeric"
-                onInput={(e)=>{ draftRef.current.extraReserveAdd = e.target.value; }}
-                className="w-28 bg-slate-900 border border-slate-700 rounded-lg px-3 py-2 text-sm font-mono"
-                placeholder="加預備金"
-              />
-              <button onClick={addReserve} className="px-3 py-2 text-sm font-bold rounded-lg bg-emerald-700 hover:bg-emerald-600">
-                加入
-              </button>
+        {/* Reserve + Black Swan progress */}
+        <Card className="bg-gradient-to-r from-slate-800 to-slate-800/80">
+          <div className="flex justify-between items-start">
+            <div>
+              <div className="text-xs text-yellow-500/80 mb-1">預備金 (USDT)</div>
+              <div className="text-2xl font-mono font-bold text-yellow-400">{privacyMode ? "****" : Math.floor(state.usdtReserve).toLocaleString()}</div>
+              <div className="mt-3 flex gap-2">
+                <input id="extraReserveAdd" defaultValue="0" type="number" onInput={(e)=>draftRef.current.extraReserveAdd=e.target.value} className="w-24 bg-slate-900 text-xs p-2 rounded border border-slate-700"/>
+                <button onClick={addReserve} className="text-xs bg-slate-700 px-3 rounded font-bold">＋預備金</button>
+              </div>
+            </div>
+            <div className="text-right">
+              <div className="text-[10px] text-slate-500 mb-1">本月份額</div>
+              <div className="inline-block"><Battery level={state.monthPartsRemaining} /></div>
+              <div className="text-[10px] text-slate-600 mt-2">{ui.dataSource}</div>
             </div>
           </div>
-          <div className="text-right">
-            <div className="text-[10px] text-slate-500 mb-1">本月份額</div>
-            <Battery level={state.monthPartsRemaining} />
-            <div className="text-[10px] text-slate-500 mt-2">資料源：{ui.dataSource}</div>
+
+          {/* 黑天鵝進度 */}
+          <div className="mt-4 bg-slate-900/60 border border-slate-700/50 rounded-xl p-3">
+            <div className="flex justify-between text-xs text-slate-400">
+              <span>黑天鵝狀態</span>
+              <span className={state.blackSwan.active ? "text-red-300 font-bold" : "text-slate-400"}>{state.blackSwan.active ? "ACTIVE" : "IDLE"}</span>
+            </div>
+            <div className="mt-2 text-xs text-slate-300">
+              {state.blackSwan.active
+                ? `原因：${state.blackSwan.reason}｜剩餘週數：${state.blackSwan.remainingWeeks}/${BLACK_SWAN_WEEKS}｜本週扣：${Math.floor(state.blackSwan.lastSpent||0)}U`
+                : "未啟動。"}
+            </div>
+            {state.blackSwan.active && (
+              <div className="mt-2 w-full h-2 bg-slate-800 rounded-full overflow-hidden">
+                <div className="h-full bg-red-500/70" style={{width: `${((BLACK_SWAN_WEEKS - state.blackSwan.remainingWeeks)/BLACK_SWAN_WEEKS)*100}%`}} />
+              </div>
+            )}
           </div>
         </Card>
 
-        <div className="flex bg-slate-900 p-1 rounded-2xl border border-slate-800">
-          <TabBtn id="home" label="行動中心" />
-          <TabBtn id="convert" label="狙擊模式" />
-          <TabBtn id="sop" label="憲法" />
+        {/* Navigation */}
+        <div className="fixed bottom-0 left-0 right-0 bg-slate-900/95 backdrop-blur border-t border-slate-800 pb-safe z-30">
+          <div className="flex max-w-lg mx-auto">
+            <TabBtn id="home" label="行動" icon="⚡" />
+            <TabBtn id="convert" label="狙擊" icon="🎯" />
+            <TabBtn id="sop" label="憲法" icon="📜" />
+            <TabBtn id="system" label="系統" icon="💾" />
+          </div>
         </div>
 
+        {/* HOME */}
         {tab === "home" && (
           <div className="space-y-4 animate-fade-in">
             <Card>
               <div className="flex justify-between items-center mb-4">
                 <h3 className="font-bold text-white flex items-center gap-2">
-                  <span className="w-2 h-2 rounded-full bg-emerald-500 animate-pulse-green"></span>
-                  每週決策
+                  <span className="w-2 h-2 rounded-full bg-emerald-500 animate-pulse-green"></span> 每週決策
                 </h3>
-                <button onClick={autofillFromApis} className="text-xs bg-slate-700 px-3 py-1.5 rounded-lg text-slate-300 active:scale-95 transition-transform">
-                  📡 更新數據
-                </button>
+                <button onClick={autofillFromApis} className="text-xs bg-slate-700 px-3 py-1.5 rounded-lg text-slate-300 active:scale-95 transition-transform">📡 更新</button>
               </div>
 
               <div className="grid grid-cols-2 gap-4 mb-4">
-                <InputField id="btcPrice" label="BTC 價格" defaultVal={draftRef.current.btcPrice}
-                  onCommit={(v)=>{ updateInput("btcPrice", v); commitUiNumber("btcPrice", v, ui.btcPrice); }} />
-                <InputField id="fngIndex" label="恐貪指數" defaultVal={draftRef.current.fngIndex}
-                  onCommit={(v)=>{ const n = clamp(Math.round(parseNum(v, ui.fngIndex)), 0, 100); updateInput("fngIndex", n); setUi(p=>({ ...p, fngIndex: n })); }} />
+                <InputField id="btcPrice" label="BTC 價格" defaultVal={draftRef.current.btcPrice} onCommit={(v)=>{ updateInput("btcPrice", v); commitUiNumber("btcPrice", v, ui.btcPrice); }} />
+                <InputField id="fngIndex" label="恐貪指數" defaultVal={draftRef.current.fngIndex} onCommit={(v)=>{ const n = clamp(Math.round(parseNum(v, ui.fngIndex)), 0, 100); updateInput("fngIndex", n); setUi(p=>({ ...p, fngIndex: n })); }} />
               </div>
 
               <div className="bg-slate-900/50 rounded-xl p-3 mb-4 border border-slate-700/50">
                 <div className="flex justify-between text-xs text-slate-400 mb-2">
-                  <span>恐貪區間</span>
-                  <span className={fngBucket.cls}>{fngBucket.label}</span>
+                  <span>恐貪</span>
+                  <span className={ui.fngIndex < 20 ? "text-red-400" : ui.fngIndex <= 40 ? "text-yellow-400" : ui.fngIndex <= 75 ? "text-slate-300" : "text-emerald-400"}>
+                    {ui.fngIndex} / 100
+                  </span>
                 </div>
-                <input
-                  type="range" min="0" max="100" value={ui.fngIndex}
-                  onChange={(e)=>{
-                    const n = clamp(parseInt(e.target.value,10)||0, 0, 100);
-                    setUi(p=>({ ...p, fngIndex: n }));
-                    updateInput("fngIndex", n);
-                  }}
-                  className="w-full h-2 bg-slate-700 rounded-lg appearance-none cursor-pointer accent-emerald-500"
-                />
+                <input type="range" min="0" max="100" value={ui.fngIndex} onChange={(e)=>{ const n = parseInt(e.target.value,10); setUi(p=>({ ...p, fngIndex: n })); updateInput("fngIndex", n); }} className="w-full h-2 bg-slate-700 rounded-lg appearance-none cursor-pointer accent-emerald-500" />
               </div>
 
-              <button onClick={()=>setShowAdvanced(v=>!v)} className="w-full mb-3 py-2 bg-slate-800 border border-slate-700 rounded-xl text-slate-300 font-bold">
-                {showAdvanced ? "收起進階手動欄位" : "展開進階手動欄位（可手動改匯率/回撤/200W/反彈）"}
-              </button>
-
+              <button onClick={()=>setShowAdvanced(!showAdvanced)} className="w-full mb-3 text-xs text-slate-500 py-2 border border-dashed border-slate-700 rounded-lg">{showAdvanced ? "收起進階設定" : "進階設定 (手動回撤/200W)"}</button>
               {showAdvanced && (
-                <div className="space-y-3 mb-4">
-                  <div className="grid grid-cols-2 gap-3">
-                    <InputField id="ethBtcRatio" label="ETH/BTC（手動）" defaultVal={draftRef.current.ethBtcRatio}
-                      onCommit={(v)=>{ updateInput("ethBtcRatio", v); commitUiNumber("ethBtcRatio", v, ui.ethBtcRatio); }} />
-                    <InputField id="adaBtcRatio" label="ADA/BTC（手動）" defaultVal={draftRef.current.adaBtcRatio}
-                      onCommit={(v)=>{ updateInput("adaBtcRatio", v); commitUiNumber("adaBtcRatio", v, ui.adaBtcRatio); }} />
-                    <InputField id="athDrawdownPct" label="6M 回撤%（手動）" defaultVal={draftRef.current.athDrawdownPct}
-                      onCommit={(v)=>{ updateInput("athDrawdownPct", v); commitUiNumber("athDrawdownPct", v, ui.athDrawdownPct); }} />
-                    <InputField id="reboundPct" label="反彈%（手動校正）" defaultVal={draftRef.current.reboundPct}
-                      onCommit={(v)=>{ updateInput("reboundPct", v); commitUiNumber("reboundPct", v, ui.reboundPct); }} />
-                  </div>
-
-                  <div className="flex justify-between items-center bg-slate-900/60 border border-slate-700/50 rounded-xl px-3 py-2">
-                    <div className="text-xs text-slate-400">手動切換：跌破 200W</div>
-                    <button
-                      onClick={()=> {
-                        const next = Number(ui.below200w||0)===1 ? 0 : 1;
-                        setUi(p=>({ ...p, below200w: next }));
-                        updateInput("below200w", next);
-                        addLog(`手動設定：跌破200W=${next? "ON":"OFF"}`, "system");
-                      }}
-                      className={`px-3 py-1.5 rounded-lg text-xs font-bold ${Number(ui.below200w)===1 ? "bg-red-600/80" : "bg-slate-700"}`}
-                    >
-                      {Number(ui.below200w)===1 ? "ON" : "OFF"}
-                    </button>
-                  </div>
+                <div className="grid grid-cols-2 gap-3 mb-4 animate-fade-in">
+                  <InputField id="athDrawdownPct" label="6M 回撤%（手動）" defaultVal={draftRef.current.athDrawdownPct} onCommit={(v)=>{ updateInput("athDrawdownPct", v); commitUiNumber("athDrawdownPct", v, ui.athDrawdownPct); }} />
+                  <button onClick={()=> setUi(p=>({ ...p, below200w: !p.below200w }))} className={`text-xs rounded border ${ui.below200w ? "bg-red-900 border-red-500 text-red-300" : "bg-slate-900 border-slate-700 text-slate-500"}`}>跌破200W: {ui.below200w?"ON":"OFF"}</button>
                 </div>
               )}
 
-              <button onClick={executeWeekly} className="w-full py-4 bg-emerald-600 hover:bg-emerald-500 active:bg-emerald-700 text-white font-bold rounded-xl shadow-lg shadow-emerald-900/20 transition-all active:scale-[0.98]">
-                執行指令 (EXECUTE)
+              <button onClick={executeWeekly} className={`w-full py-4 text-white font-bold rounded-xl shadow-lg transition-all ${canExecuteThisWeek ? "bg-emerald-600 hover:bg-emerald-500" : "bg-slate-700 text-slate-500 opacity-70"}`}>
+                {canExecuteThisWeek ? "執行本週決策" : "本週已執行（鎖定）"}
               </button>
             </Card>
+
+            {/* Logs */}
+            <div className="px-2">
+              <div className="text-[10px] text-slate-500 mb-2 font-mono uppercase">System Logs</div>
+              <div className="space-y-1.5 font-mono text-xs max-h-32 overflow-y-auto pr-2">
+                {state.logs.length === 0 && <div className="text-slate-700">System Ready...</div>}
+                {state.logs.map(log => (
+                  <div key={log.id} className={log.type === 'alert' ? 'text-red-400' : log.type === 'success' ? 'text-emerald-400' : log.type === 'secure' ? 'text-blue-400' : log.type === 'warning' ? 'text-yellow-300' : 'text-slate-400'}>
+                    <span className="opacity-40">[{log.date.slice(5)}]</span> {log.msg}
+                  </div>
+                ))}
+              </div>
+            </div>
           </div>
         )}
 
+        {/* CONVERT */}
         {tab === "convert" && (
           <div className="space-y-4 animate-fade-in">
             <Card className="border-l-4 border-l-fuchsia-500">
               <h3 className="font-bold text-fuchsia-400 mb-2">ETH 狙擊手</h3>
-              <div className="text-xs text-slate-400 mb-2">
-                當前匯率 <span className="text-white mono">{Number(ui.ethBtcRatio).toFixed(5)}</span> ｜ 目標 <span className="text-fuchsia-300 mono">{ETH_SNIPE_RATIO}</span>
-              </div>
-              <div className="text-xs text-slate-500 bg-slate-900 p-2 rounded mb-3">
-                持有 {fmt(state.eth,2)} ETH。等待期間：<span className="text-emerald-300 font-bold">全倉質押</span>（利息對抗時間）。
-              </div>
-              <button
-                onClick={()=>snipeConvert("ETH")}
-                disabled={!(Number(ui.ethBtcRatio) >= ETH_SNIPE_RATIO && state.eth>0)}
-                className={`w-full py-3 rounded-xl font-bold ${
-                  (Number(ui.ethBtcRatio) >= ETH_SNIPE_RATIO && state.eth>0)
-                    ? "bg-fuchsia-600 hover:bg-fuchsia-500"
-                    : "bg-slate-700 text-slate-500 cursor-not-allowed"
-                }`}
-              >
-                ETH 到價執行（全換 BTC）
-              </button>
+              <div className="text-xs text-slate-400 mb-2">匯率 <span className="text-white mono">{Number(ui.ethBtcRatio||0).toFixed(5)}</span> / 目標 <span className="text-fuchsia-300 mono">{ETH_SNIPE_RATIO}</span></div>
+              <button onClick={()=>snipeConvert("ETH")} className="w-full py-3 rounded-xl font-bold bg-fuchsia-600 hover:bg-fuchsia-500">狙擊成功（輸入實得BTC）</button>
             </Card>
-
             <Card className="border-l-4 border-l-blue-500">
               <h3 className="font-bold text-blue-400 mb-2">ADA 狙擊手</h3>
-              <div className="text-xs text-slate-400 mb-2">
-                當前匯率 <span className="text-white mono">{Number(ui.adaBtcRatio).toFixed(7)}</span> ｜ 目標 <span className="text-blue-300 mono">{ADA_SNIPE_RATIO}</span>
-              </div>
-              <div className="text-xs text-slate-500 bg-slate-900 p-2 rounded mb-3">
-                持有 {Math.floor(state.ada).toLocaleString()} ADA。等待期間：<span className="text-emerald-300 font-bold">委託/流動質押</span>。
-              </div>
-              <button
-                onClick={()=>snipeConvert("ADA")}
-                disabled={!(Number(ui.adaBtcRatio) >= ADA_SNIPE_RATIO && state.ada>0)}
-                className={`w-full py-3 rounded-xl font-bold ${
-                  (Number(ui.adaBtcRatio) >= ADA_SNIPE_RATIO && state.ada>0)
-                    ? "bg-blue-600 hover:bg-blue-500"
-                    : "bg-slate-700 text-slate-500 cursor-not-allowed"
-                }`}
-              >
-                ADA 到價執行（全換 BTC）
-              </button>
+              <div className="text-xs text-slate-400 mb-2">匯率 <span className="text-white mono">{Number(ui.adaBtcRatio||0).toFixed(7)}</span> / 目標 <span className="text-blue-300 mono">{ADA_SNIPE_RATIO}</span></div>
+              <button onClick={()=>snipeConvert("ADA")} className="w-full py-3 rounded-xl font-bold bg-blue-600 hover:bg-blue-500">狙擊成功（輸入實得BTC）</button>
             </Card>
           </div>
         )}
 
+        {/* SOP full */}
         {tab === "sop" && (
-          <div className="space-y-4 animate-fade-in text-sm text-slate-300 leading-relaxed">
-            {/* ✅ 2) 憲法完整版本 */}
+          <div className="space-y-4 animate-fade-in text-sm text-slate-300 leading-relaxed pb-8">
             <Card>
               <h3 className="font-bold text-yellow-400 mb-2">🛡️ 2030 累積 3 BTC《終極防禦・執行憲法》</h3>
               <div className="text-xs text-slate-400">執行期間：2026.01 - 2030.12｜執行人：陳祥豪</div>
             </Card>
-
             <Card>
               <h3 className="font-bold text-yellow-400 mb-2">核心信條</h3>
-              <ul className="list-disc pl-4 space-y-1 marker:text-yellow-600">
+              <ul className="list-disc pl-4 space-y-1">
                 <li>我的目標是 BTC 顆數，不是法幣數字。</li>
                 <li>我不預測市場，我只執行規則。</li>
                 <li>只要活著（不爆倉、不亂動），時間會帶我到終點。</li>
               </ul>
             </Card>
-
             <Card>
               <h3 className="font-bold text-emerald-400 mb-2">第一章：定投進攻模組（DCA）</h3>
-              <div className="text-slate-300">
-                每月 180 USDT（3 份，每份 60U），每週看一次恐貪指數：
-              </div>
-              <div className="mt-2 text-xs bg-slate-900 border border-slate-700 rounded-xl p-3">
+              <div className="text-xs bg-slate-900 border border-slate-700 rounded-xl p-3 space-y-1">
                 <div>A &lt; 20：3買0存（+ 黑天鵝觸發）</div>
                 <div>B 20-40：2買1存</div>
                 <div>C 40-75：1買2存</div>
                 <div>D &gt; 75：0買3存</div>
-                <div className="mt-2 text-yellow-300 font-bold">長牛保險：恐貪 &gt; 75 連續 2 個月（= 8 週）後 → 1買2存</div>
+                <div className="mt-2 text-yellow-300 font-bold">長牛保險：&gt;75 連續 8 週後 → 1買2存</div>
               </div>
             </Card>
-
             <Card>
               <h3 className="font-bold text-fuchsia-400 mb-2">第二章：狙擊手轉換模組（只換 BTC）</h3>
-              <ul className="list-disc pl-4 space-y-1 marker:text-fuchsia-300">
-                <li>核心原則：不換 USDT，直接換 BTC 鎖定戰果。</li>
-                <li>時間策略：無限期等待，不到目標價絕不離場；用質押利息對抗時間。</li>
-                <li>ETH：ETH/BTC ≥ 0.058 → 直接全換 BTC（等待期間全倉質押）。</li>
-                <li>ADA：ADA/BTC ≥ 0.0000085 → 直接全換 BTC（等待期間委託/流動質押）。</li>
+              <ul className="list-disc pl-4 space-y-1 text-xs">
+                <li>ETH/BTC ≥ 0.058：全換 BTC（等待期間全倉質押）。</li>
+                <li>ADA/BTC ≥ 0.0000085：全換 BTC（等待期間委託/流動質押）。</li>
+                <li>不換 USDT：追求高勝率，鎖定戰果。</li>
               </ul>
             </Card>
-
             <Card>
-              <h3 className="font-bold text-red-400 mb-2">第三章：終極防禦模組（黑天鵝預備金）</h3>
-              <div className="text-slate-300">觸發任一條件 → 預備金分 4 週等額買入：</div>
-              <ul className="list-disc pl-4 mt-2 space-y-1 marker:text-red-300">
-                <li>BTC 近 6 個月 ATH 回撤 ≥ 30%</li>
-                <li>恐貪指數 &lt; 20</li>
-                <li>BTC 跌破 200W MA</li>
+              <h3 className="font-bold text-red-400 mb-2">第三章：黑天鵝預備金</h3>
+              <ul className="list-disc pl-4 space-y-1 text-xs">
+                <li>觸發：6M 回撤 ≥ 30% 或 FNG&lt;20 或 跌破 200W。</li>
+                <li>執行：預備金分 4 週等額買入。</li>
+                <li>停止：買入期間反彈 &gt; 15% 立即停止。</li>
               </ul>
-              <div className="mt-2 text-yellow-300 font-bold">停止機制：買入期間反彈 &gt; 15% → 立刻停止黑天鵝買入</div>
             </Card>
-
             <Card>
-              <h3 className="font-bold text-sky-300 mb-2">第四章：鐵血紀律與安全（SOP）</h3>
-              <ul className="list-disc pl-4 space-y-1 marker:text-sky-300">
-                <li>冷錢包鐵律：交易所（熱錢包）BTC ≥ 0.05 → 立即提領到冷錢包。</li>
-                <li>穩定幣風控：轉換期除外，穩定幣占比不超過 30%（此 App 顯示占比提醒）。</li>
-                <li>注意力管理：ETH/BTC 0.045、ADA/BTC 0.000008、恐貪週推播；警報沒響就回生活。</li>
+              <h3 className="font-bold text-sky-300 mb-2">第四章：鐵血紀律與安全</h3>
+              <ul className="list-disc pl-4 space-y-1 text-xs">
+                <li>冷錢包鐵律：熱錢包 BTC ≥ 0.05 → 立即提領。</li>
+                <li>注意力管理：ETH/BTC 0.045、ADA/BTC 0.000008、恐貪週推播。</li>
+                <li>穩定幣占比不超過 30%（轉換期除外）。</li>
               </ul>
             </Card>
-
             <Card>
               <h3 className="font-bold text-yellow-400 mb-2">第五章：自我契約</h3>
-              <div className="italic text-slate-300">
-                「這套系統已經包含了所有的恐懼與貪婪。市場瘋狂時叫我冷靜存錢；市場崩盤時叫我進攻抄底。」
+              <div className="text-xs italic text-slate-300">
+                「市場瘋狂時，我冷靜存錢；市場崩盤時，我進攻抄底。」
               </div>
-              <div className="mt-2 text-slate-300">
-                憲法修正條款：若 2030 前想修改本計畫，必須寫下理由並延遲 30 天再執行。
+              <div className="text-xs mt-2">
+                修正條款：2030 前要改策略，寫理由並延遲 30 天再執行。
               </div>
             </Card>
           </div>
         )}
 
-        <div className="border-t border-slate-800 pt-4 mt-8">
-          <div className="text-[10px] text-slate-500 mb-2 font-mono uppercase">System Logs</div>
-          <div className="space-y-1.5 font-mono text-xs max-h-32 overflow-y-auto">
-            {state.logs.length === 0 && <div className="text-slate-700">Ready...</div>}
-            {state.logs.map(log => (
-              <div key={log.id} className={
-                log.type === 'alert' ? 'text-red-400' :
-                log.type === 'success' ? 'text-emerald-400' :
-                log.type === 'secure' ? 'text-blue-400' :
-                log.type === 'warning' ? 'text-yellow-300' :
-                'text-slate-400'
-              }>
-                <span className="opacity-50">[{log.date.slice(5)}]</span> {log.msg}
+        {/* SYSTEM */}
+        {tab === "system" && (
+          <div className="space-y-4 animate-fade-in">
+            <Card>
+              <h3 className="font-bold text-white mb-2">💾 備份 / 還原</h3>
+              <p className="text-xs text-slate-400 mb-4">資料只存在本機。換手機/清快取前請先匯出備份。</p>
+              <div className="grid grid-cols-2 gap-3">
+                <button onClick={exportData} className="bg-emerald-700 py-3 rounded-xl font-bold text-sm">匯出備份</button>
+                <button onClick={importData} className="bg-slate-700 py-3 rounded-xl font-bold text-sm text-slate-200">還原備份</button>
               </div>
-            ))}
+            </Card>
+
+            <Card>
+              <h3 className="font-bold text-white mb-2">👁️ 隱私</h3>
+              <div className="flex justify-between items-center">
+                <span className="text-sm text-slate-300">隱私模式（隱藏金額）</span>
+                <button onClick={()=>setPrivacyMode(!privacyMode)} className={`px-3 py-1 rounded text-xs font-bold ${privacyMode ? "bg-emerald-600" : "bg-slate-700"}`}>
+                  {privacyMode ? "ON" : "OFF"}
+                </button>
+              </div>
+            </Card>
+
+            <Card>
+              <h3 className="font-bold text-white mb-2">🧾 系統資訊</h3>
+              <div className="text-xs text-slate-400">Build：v4final01｜本週鎖：{canExecuteThisWeek ? "未執行" : "已執行"}</div>
+            </Card>
           </div>
-        </div>
+        )}
       </div>
 
+      {/* Modal */}
       {modal && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/80 backdrop-blur-sm animate-fade-in">
-          <div className="bg-slate-800 border border-slate-600 w-full max-w-sm rounded-2xl p-6 shadow-2xl">
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/80 backdrop-blur-sm animate-fade-in" onClick={(e)=>e.target===e.currentTarget && setModal(null)}>
+          <div className="bg-slate-800 border border-slate-600 w-full max-w-sm rounded-2xl p-6 shadow-2xl relative">
             <h3 className="text-xl font-bold text-white mb-4">{modal.title}</h3>
-            <div className="text-slate-300 mb-6">{modal.body}</div>
-            <button onClick={() => setModal(null)} className="w-full py-3 bg-slate-700 hover:bg-slate-600 rounded-xl text-white font-bold">
-              關閉
-            </button>
+            <div className="text-slate-300 mb-6 whitespace-pre-wrap">{modal.body}</div>
+            <button onClick={() => setModal(null)} className="w-full py-3 bg-slate-700 hover:bg-slate-600 rounded-xl text-white font-bold">關閉</button>
           </div>
         </div>
       )}

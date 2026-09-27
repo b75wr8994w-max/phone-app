@@ -27,11 +27,9 @@
     .mono{ font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Courier New", monospace; }
     .app-shell{ height:100%; display: flex; flex-direction: column; }
     
+    /* 解決痛點1：移除多餘的 padding-bottom，將交給 JSX 內部的 Spacer 精準控制 */
     .content-scroll{
       flex: 1; overflow-y:auto; -webkit-overflow-scrolling:touch;
-      padding-top: env(safe-area-inset-top);
-      /* 確保底部留有足夠空間，避免被導覽列遮擋 */
-      padding-bottom: env(safe-area-inset-bottom); 
     }
     
     .tabbar{
@@ -177,7 +175,7 @@ const TacticalProgressBar = ({ label, current, target, unit, themeColor, isCrypt
 };
 
 /* =========================================
-   推算模型與圖表 (去除了 Tooltip 改用狀態提升)
+   推算模型與圖表
    ========================================= */
 const NativeAreaChart = ({ data, hoverIndex, setHoverIndex }) => {
   if (!data || data.length === 0) return <div className="text-slate-500 text-center py-10">Initializing Model...</div>;
@@ -319,7 +317,6 @@ const WealthSimulatorEngine = ({ cryptoTwd, holdings, config }) => {
     return data;
   }, [rates, cryptoTwd, initQqq, initVoo, loanBalance, loanPayment, loanRate, monthlyDcaTwd, targetYear]);
 
-  // 取出活躍的年份資料，若沒有 Hover 則預設為最後一年
   const activeData = hoverIndex !== null ? chartData[hoverIndex] : chartData[chartData.length - 1];
 
   return (
@@ -336,7 +333,6 @@ const WealthSimulatorEngine = ({ cryptoTwd, holdings, config }) => {
         ))}
       </div>
       
-      {/* 解決痛點1：將 Tooltip 拆除，改為在上方以動態面板顯示，絕不遮擋圖表 */}
       <div className="flex flex-col space-y-3 border-b border-slate-800 pb-3">
         <div className="flex flex-col sm:flex-row justify-between items-start sm:items-end gap-2">
           <div>
@@ -419,7 +415,9 @@ function App(){
   const cryptoTwd = cryptoUsdt * TWD_EXCHANGE_RATE;
   
   const tradFiTwd = (holdings.qqq || 0) + (holdings.voo || 0);
-  const portfolioTwd = cryptoTwd + tradFiTwd;
+  const totalAssetsTwd = cryptoTwd + tradFiTwd;
+  // 解決痛點2：總淨值 = 總資產 - 信貸餘額
+  const netWorthTwd = totalAssetsTwd - config.loanBalance;
   
   const currentRatios = {
     ADA_ETH: (ui.ethBtcRatio > 0) ? (ui.adaBtcRatio / ui.ethBtcRatio) : 0,
@@ -444,7 +442,8 @@ function App(){
     else if (fng <= 75) { action = "C 中性/偏貪：50% 買 / 50% 存"; spendParts = 2; saveParts = 2; }
     else { action = "D 貪婪：0買 100% 存入"; spendParts = 0; saveParts = 4; }
 
-    const usdtSpent = spendParts * partUsdt, usdtSaved = saveParts * partUsdt;
+    const usdtSpent = spendParts * partUsdt;
+    const usdtSaved = saveParts * partUsdt;
     
     let blackSpent = 0;
     let reserveAfterSave = holdings.usdtReserve + usdtSaved;
@@ -457,13 +456,27 @@ function App(){
     const totalSpent = usdtSpent + blackSpent;
     const btcBought = totalSpent > 0 ? (totalSpent / ui.btcPrice) : 0;
 
+    // 解決痛點2：每月執行時，連動扣除當月信貸
+    let newLoanBalance = config.loanBalance;
+    let loanLogMsg = "";
+    if (newLoanBalance > 0) {
+        const monthlyInterest = newLoanBalance * (config.loanRate / 100) / 12;
+        const principal = config.loanPayment - monthlyInterest;
+        if (principal > 0) {
+            newLoanBalance = Math.max(0, newLoanBalance - principal);
+            loanLogMsg = `｜還款扣除信貸本金 $${Math.round(principal)}`;
+        } else {
+            loanLogMsg = `｜本月還款不足抵扣利息`;
+        }
+    }
+
     setAppData(p => ({ 
-        ...p, 
+        config: { ...p.config, loanBalance: newLoanBalance },
         holdings: { ...p.holdings, btcHot: p.holdings.btcHot + btcBought, usdtReserve: reserveAfterSave }, 
         state: { ...p.state, lastDcaMonth: monthKeyNow() } 
     }));
     
-    addLog(`月報：${action}`, usdtSpent > 0 ? "success" : "warning");
+    addLog(`月報：${action}${loanLogMsg}`, usdtSpent > 0 ? "success" : "warning");
     if (usdtSaved > 0) addLog(`存入預備金：+${Math.round(usdtSaved)}U`, "info");
     if (totalSpent > 0) addLog(`本月投入：${Math.floor(totalSpent)}U → ${btcBought.toFixed(6)} BTC`, "success");
     triggerConfetti();
@@ -516,7 +529,8 @@ function App(){
 
   return (
     <div className="app-shell">
-      <div className="bg-slate-900/90 backdrop-blur-md border-b border-slate-800 px-4 py-3 z-10 flex justify-between items-center shadow-lg">
+      {/* 解決痛點1：加入 pt-[calc(env(safe-area-inset-top)+12px)] 避開手機頂部瀏海/動態島 */}
+      <div className="bg-slate-900/90 backdrop-blur-md border-b border-slate-800 px-4 pt-[calc(env(safe-area-inset-top)+12px)] pb-3 shrink-0 z-10 flex justify-between items-center shadow-lg">
         <div onClick={()=>setPrivacyMode(!privacyMode)} className="cursor-pointer">
           <div className="text-[10px] text-slate-500 font-mono mb-0.5 flex items-center gap-1">Project {config.targetYear} {privacyMode?'🙈':''}</div>
           <div className="text-xl font-bold font-mono text-white flex items-center gap-2">
@@ -524,8 +538,8 @@ function App(){
           </div>
         </div>
         <div className="text-right">
-          <div className="text-[10px] text-slate-500 mb-0.5">倒數至 {config.targetYear}</div>
-          <div className="text-sm font-bold text-emerald-400 font-mono drop-shadow-[0_0_8px_rgba(16,185,129,0.3)]">{maskStr(portfolioTwd, fmtMoney)}</div>
+          <div className="text-[10px] text-slate-500 mb-0.5">總淨值(資產-信貸)</div>
+          <div className="text-sm font-bold text-emerald-400 font-mono drop-shadow-[0_0_8px_rgba(16,185,129,0.3)]">{maskStr(netWorthTwd, fmtMoney)}</div>
         </div>
       </div>
 
@@ -685,8 +699,8 @@ function App(){
             </div>
           )}
 
-          {/* 解決痛點2：保護最底部內容不被 Tabbar 遮擋的 Spacer */}
-          <div className="h-28 shrink-0 w-full pointer-events-none"></div>
+          {/* 解決痛點1：保護最底部內容不被 Tabbar 遮擋的 Spacer */}
+          <div className="h-[calc(80px+env(safe-area-inset-bottom))] shrink-0 w-full pointer-events-none"></div>
 
         </div>
       </div>

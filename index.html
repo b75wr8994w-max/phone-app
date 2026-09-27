@@ -2,9 +2,16 @@
 <html lang="zh-TW">
 <head>
     <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
     <title>投資與人生防禦大憲法</title>
+    
+    <!-- 引入 Tailwind CSS -->
     <script src="https://cdn.tailwindcss.com"></script>
+    
+    <!-- 引入 Confetti 特效 (來自舊版優點) -->
+    <script src="https://cdn.jsdelivr.net/npm/canvas-confetti@1.6.0/dist/confetti.browser.min.js"></script>
+    
+    <!-- 設定 Import Map -->
     <script type="importmap">
     {
         "imports": {
@@ -14,26 +21,34 @@
         }
     }
     </script>
+    
+    <!-- 引入 Babel -->
     <script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
+
+    <style>
+      body { -webkit-tap-highlight-color: transparent; }
+      ::-webkit-scrollbar { width: 6px; }
+      ::-webkit-scrollbar-track { background: #0f172a; }
+      ::-webkit-scrollbar-thumb { background: #334155; border-radius: 3px; }
+      .hide-scroll::-webkit-scrollbar { display: none; }
+    </style>
 </head>
-<body class="bg-slate-950">
+<body class="bg-slate-950 text-slate-200">
     <div id="root"></div>
 
     <script type="text/babel" data-type="module">
-        import React, { useState, useEffect, useMemo } from 'react';
+        import React, { useState, useEffect, useMemo, useRef } from 'react';
         import { createRoot } from 'react-dom/client';
         import { 
           Shield, CalendarCheck, Target, TrendingUp, AlertTriangle, 
-          ShieldCheck, Activity, DollarSign, Clock, Map, Flame, Zap
+          ShieldCheck, Activity, DollarSign, Clock, Map, Flame, Zap,
+          Eye, EyeOff, Save, Download, Upload, Settings, CheckCircle2
         } from 'lucide-react';
 
-        // --- 核心系統常數與資產設定 ---
+        // --- 核心系統常數 ---
         const TWD_EXCHANGE_RATE = 31.8; 
-        const HOLDINGS = {
-          ETH: 32.5802 + 0.00000515,
-          BTC: 0.55999,
-          ADA: 75350.2
-        };
+        const SAVE_KEY = "project_2047_constitution_v8";
+        
         const STRATEGY_TARGETS = {
           ADA_ETH_1: 0.00025,
           ADA_ETH_2: 0.00040,
@@ -43,7 +58,24 @@
         };
         const FALLBACK_PRICES = { BTC: 64500, ETH: 3450, ADA: 0.45 };
 
-        // --- UI 元件 ---
+        // --- 預設初始狀態 ---
+        const getInitialState = () => ({
+          holdings: {
+            btcHot: 0.05, // 預設一點熱錢包用於展示提領功能
+            btcCold: 0.50999,
+            eth: 32.58020515,
+            ada: 75350.2,
+            usdtReserve: 200000 / TWD_EXCHANGE_RATE // 緊急預備金換算
+          },
+          sopMonthKey: "", // 用於追蹤跨月自動重置
+          sopStatus: {
+            emergency: false,
+            travel: false,
+            dcaBtc: false
+          }
+        });
+
+        // --- UI 共用元件 ---
         const Card = ({ title, icon: Icon, children, className = "", rightElement = null }) => (
           <div className={`bg-slate-900/70 backdrop-blur-md rounded-xl flex flex-col overflow-hidden border border-slate-700/50 shadow-lg ${className}`}>
             <div className="flex items-center justify-between px-5 py-4 border-b border-slate-800 bg-slate-800/40">
@@ -53,56 +85,18 @@
               </div>
               {rightElement && <div>{rightElement}</div>}
             </div>
-            <div className="p-5 flex-1 flex flex-col relative overflow-y-auto">
+            <div className="p-5 flex-1 flex flex-col relative overflow-y-auto hide-scroll">
               {children}
             </div>
           </div>
         );
 
-        const TacticalProgressBar = ({ label, current, target, unit, themeColor, isCryptoRatio = false }) => {
-          const safeCurrent = isNaN(current) ? 0 : current;
-          const progress = Math.min((safeCurrent / target) * 100, 100);
-          const isCompleted = progress >= 100;
-          
-          const colors = {
-            blue: { bg: 'bg-blue-500', shadow: 'shadow-[0_0_10px_rgba(59,130,246,0.5)]', text: 'text-blue-400' },
-            amber: { bg: 'bg-amber-500', shadow: 'shadow-[0_0_10px_rgba(245,158,11,0.5)]', text: 'text-amber-400' },
-            emerald: { bg: 'bg-emerald-500', shadow: 'shadow-[0_0_10px_rgba(16,185,129,0.5)]', text: 'text-emerald-400' },
-            rose: { bg: 'bg-rose-500', shadow: 'shadow-[0_0_10px_rgba(243,33,115,0.5)]', text: 'text-rose-400' }
-          };
-          const theme = isCompleted ? colors.emerald : colors[themeColor];
-          const displayTarget = isCryptoRatio ? target.toFixed(5) : target.toLocaleString();
-          const displayCurrent = isCryptoRatio ? safeCurrent.toFixed(6) : safeCurrent.toLocaleString();
-
-          return (
-            <div className="mb-5 last:mb-0 relative">
-              <div className="flex justify-between items-end mb-1.5">
-                <span className="text-sm font-semibold text-slate-300">{label}</span>
-                <div className="text-right">
-                  <span className="text-xs font-mono text-slate-500 block mb-0.5">TARGET: {displayTarget}</span>
-                  <span className={`text-sm font-mono font-bold ${theme.text}`}>
-                    LIVE: {safeCurrent > 0 ? displayCurrent : 'SYNCING'} {unit}
-                  </span>
-                </div>
-              </div>
-              <div className="w-full bg-slate-800 rounded-full h-3 relative overflow-hidden border border-slate-700">
-                <div className={`h-full rounded-full transition-all duration-1000 ease-out ${theme.bg} ${theme.shadow}`} style={{ width: `${progress}%` }} />
-                {!isCompleted && safeCurrent > 0 && <div className="absolute inset-0 bg-white/10 animate-pulse" />}
-              </div>
-              <div className="flex justify-between items-center mt-1.5">
-                <span className="text-[10px] text-slate-500">{isCompleted ? '🔥 EXECUTE PROTOCOL' : 'MONITORING'}</span>
-                <span className={`text-xs font-mono font-bold ${theme.text}`}>{progress.toFixed(2)}%</span>
-              </div>
-            </div>
-          );
-        };
-
+        // --- 財富模擬器元件 (保留原版強大邏輯) ---
         const NativeAreaChart = ({ data }) => {
           const [hoverIndex, setHoverIndex] = useState(null);
           if (!data || data.length === 0) return <div className="text-slate-500 text-center py-10">Initializing Model...</div>;
 
-          const width = 800;
-          const height = 280;
+          const width = 800, height = 280;
           const padding = { top: 20, right: 45, bottom: 30, left: 55 };
           const innerWidth = width - padding.left - padding.right;
           const innerHeight = height - padding.top - padding.bottom;
@@ -144,11 +138,9 @@
           let tooltipStyle = {};
           if (hoverIndex !== null) {
               const isRightSide = hoverIndex > (data.length / 2);
-              if (isRightSide) {
-                  tooltipStyle = { right: `${100 - (hoverIndex / (data.length - 1)) * 100}%`, marginRight: '15px' };
-              } else {
-                  tooltipStyle = { left: `${(hoverIndex / (data.length - 1)) * 100}%`, marginLeft: '15px' };
-              }
+              tooltipStyle = isRightSide 
+                ? { right: `${100 - (hoverIndex / (data.length - 1)) * 100}%`, marginRight: '15px' }
+                : { left: `${(hoverIndex / (data.length - 1)) * 100}%`, marginLeft: '15px' };
           }
 
           return (
@@ -156,14 +148,12 @@
               <div className="relative flex-1 touch-none" 
                    onTouchMove={handleInteraction} onTouchStart={handleInteraction} 
                    onMouseMove={handleInteraction} onMouseLeave={() => setHoverIndex(null)}>
-                
                 <svg viewBox={`0 0 ${width} ${height}`} className="w-full h-full overflow-visible">
                   <defs>
                     <linearGradient id="gradVOO" x1="0" y1="0" x2="0" y2="1"><stop offset="0%" stopColor="#10b981" stopOpacity="0.8"/><stop offset="100%" stopColor="#10b981" stopOpacity="0.2"/></linearGradient>
                     <linearGradient id="gradQQQ" x1="0" y1="0" x2="0" y2="1"><stop offset="0%" stopColor="#3b82f6" stopOpacity="0.8"/><stop offset="100%" stopColor="#3b82f6" stopOpacity="0.2"/></linearGradient>
                     <linearGradient id="gradCrypto" x1="0" y1="0" x2="0" y2="1"><stop offset="0%" stopColor="#f59e0b" stopOpacity="0.8"/><stop offset="100%" stopColor="#f59e0b" stopOpacity="0.2"/></linearGradient>
                   </defs>
-
                   <rect x={getX(0)} y={padding.top} width={getX(6) - getX(0)} height={innerHeight} fill="rgba(245,158,11,0.03)" />
                   <rect x={getX(6)} y={padding.top} width={getX(14) - getX(6)} height={innerHeight} fill="rgba(59,130,246,0.03)" />
                   <rect x={getX(14)} y={padding.top} width={getX(21) - getX(14)} height={innerHeight} fill="rgba(16,185,129,0.03)" />
@@ -183,11 +173,9 @@
                   <path d={vooArea} fill="url(#gradVOO)" className="transition-all duration-300" />
                   <path d={qqqArea} fill="url(#gradQQQ)" className="transition-all duration-300" />
                   <path d={cryptoArea} fill="url(#gradCrypto)" className="transition-all duration-300" />
-                  
                   <path d={vooPathTop} fill="none" stroke="#059669" strokeWidth="1" opacity="0.5" />
                   <path d={qqqPathTop} fill="none" stroke="#2563eb" strokeWidth="1" opacity="0.5" />
                   <path d={cryptoPathTop} fill="none" stroke="#d97706" strokeWidth="1.5" />
-
                   <path d={prinPath} fill="none" stroke="#f8fafc" strokeWidth="2.5" strokeDasharray="6 4" className="transition-all duration-300 drop-shadow-md" />
                   <path d={realTotalPath} fill="none" stroke="#60a5fa" strokeWidth="1.5" strokeDasharray="2 4" opacity="0.7" className="transition-all duration-300" />
 
@@ -201,41 +189,25 @@
                 </svg>
 
                 {hoverIndex !== null && (
-                  <div className="absolute pointer-events-none bg-slate-900/95 backdrop-blur-xl border border-slate-600 p-3 rounded-xl shadow-[0_10px_30px_rgba(0,0,0,0.8)] z-20 w-[240px] sm:w-[260px]"
+                  <div className="absolute pointer-events-none bg-slate-900/95 backdrop-blur-xl border border-slate-600 p-3 rounded-xl shadow-[0_10px_30px_rgba(0,0,0,0.8)] z-20 w-[240px]"
                        style={{ top: '5px', ...tooltipStyle }}>
                     <div className="flex justify-between items-end border-b border-slate-700 pb-2 mb-2">
-                      <span className="text-white font-bold text-sm sm:text-base">{data[hoverIndex].year} 年</span>
-                      <span className="text-slate-400 font-normal text-[10px] sm:text-xs">年齡: {data[hoverIndex].age} 歲</span>
+                      <span className="text-white font-bold text-sm">{data[hoverIndex].year} 年</span>
+                      <span className="text-slate-400 font-normal text-xs">年齡: {data[hoverIndex].age} 歲</span>
                     </div>
-                    
                     <div className="bg-slate-800/80 rounded p-2 mb-2 border border-slate-700/50">
                       <p className="text-[10px] text-slate-400 mb-0.5">年度戰略</p>
-                      <p className="text-[11px] sm:text-xs text-blue-300 font-bold leading-tight">{data[hoverIndex].injectDesc}</p>
+                      <p className="text-xs text-blue-300 font-bold leading-tight">{data[hoverIndex].injectDesc}</p>
                     </div>
-
                     <div className="space-y-1.5">
-                      <p className="text-[11px] sm:text-xs text-amber-400 flex justify-between items-center">
-                        <span>Crypto</span><span>{fmtMoney(data[hoverIndex].crypto)}</span>
-                      </p>
-                      <p className="text-[11px] sm:text-xs text-blue-400 flex justify-between items-center">
-                        <span>QQQ</span><span>{fmtMoney(data[hoverIndex].qqq)}</span>
-                      </p>
-                      <p className="text-[11px] sm:text-xs text-emerald-400 flex justify-between items-center">
-                        <span>VOO</span><span>{fmtMoney(data[hoverIndex].voo)}</span>
-                      </p>
-
+                      <p className="text-xs text-amber-400 flex justify-between"><span>Crypto</span><span>{fmtMoney(data[hoverIndex].crypto)}</span></p>
+                      <p className="text-xs text-blue-400 flex justify-between"><span>QQQ</span><span>{fmtMoney(data[hoverIndex].qqq)}</span></p>
+                      <p className="text-xs text-emerald-400 flex justify-between"><span>VOO</span><span>{fmtMoney(data[hoverIndex].voo)}</span></p>
                       <div className="border-t border-slate-700 my-2 pt-2" />
-                      
-                      <p className="text-xs sm:text-sm font-bold text-white flex justify-between">
-                        <span>帳面淨值</span><span>{fmtMoney(data[hoverIndex].total)}</span>
-                      </p>
-                      <p className="text-[10px] sm:text-[11px] text-emerald-400 flex justify-between items-center mt-0.5">
-                        <span>時間複利</span><span>+{fmtMoney(data[hoverIndex].total - data[hoverIndex].totalPrin)}</span>
-                      </p>
+                      <p className="text-sm font-bold text-white flex justify-between"><span>帳面淨值</span><span>{fmtMoney(data[hoverIndex].total)}</span></p>
+                      <p className="text-[11px] text-emerald-400 flex justify-between items-center mt-0.5"><span>時間複利</span><span>+{fmtMoney(data[hoverIndex].total - data[hoverIndex].totalPrin)}</span></p>
                       <div className="bg-blue-900/20 rounded p-1.5 mt-2">
-                         <p className="text-[10px] text-blue-300 flex justify-between">
-                           <span>實質購買力 (扣除通膨)</span><span className="font-bold">{fmtMoney(data[hoverIndex].realTotal)}</span>
-                         </p>
+                         <p className="text-[10px] text-blue-300 flex justify-between"><span>實質購買力</span><span className="font-bold">{fmtMoney(data[hoverIndex].realTotal)}</span></p>
                       </div>
                     </div>
                   </div>
@@ -262,28 +234,21 @@
               let injectDesc = "無新增投入 (純複利掛機)";
               
               if (i > 0) {
-                qqq *= (1 + qqqRate/100);
-                voo *= (1 + vooRate/100);
-                crypto *= (1 + btcRate/100);
+                qqq *= (1 + qqqRate/100); voo *= (1 + vooRate/100); crypto *= (1 + btcRate/100);
               }
               
               if (year >= 2027 && year <= 2031) { 
-                crypto += 156000;
-                cryptoPrin += 156000;
+                crypto += 156000; cryptoPrin += 156000;
                 injectDesc = "每月 1.3 萬定投 BTC";
-                
                 if (year === 2031) {
-                  qqq += 300000; qqqPrin += 300000;
-                  crypto += 300000; cryptoPrin += 300000;
+                  qqq += 300000; qqqPrin += 300000; crypto += 300000; cryptoPrin += 300000;
                   injectDesc = "60萬保單奇點閃電戰灌入 + 1.3萬/月定投";
                 }
               } else if (year >= 2032 && year <= 2039) {
-                qqq += 534000;
-                qqqPrin += 534000;
+                qqq += 534000; qqqPrin += 534000;
                 injectDesc = "信貸清零，每月 4.45 萬定投 QQQ";
               } else if (year >= 2040) {
-                voo += 534000;
-                vooPrin += 534000;
+                voo += 534000; vooPrin += 534000;
                 injectDesc = "順序防禦切換，全面轉投 VOO";
               }
               
@@ -330,9 +295,7 @@
               <div className="flex flex-col sm:flex-row justify-between items-start sm:items-end px-2 border-b border-slate-800 pb-3 gap-3">
                 <div className="w-full sm:w-auto">
                   <p className="text-[10px] text-slate-500 font-mono mb-0.5">EST. 2047 (50歲) 退休總淨值</p>
-                  <div className="flex flex-col sm:flex-row sm:items-baseline gap-1 sm:gap-3">
-                    <p className="text-2xl sm:text-3xl font-bold text-white tracking-tight">{fmtMoney(finalYear.total)}</p>
-                  </div>
+                  <p className="text-2xl sm:text-3xl font-bold text-white tracking-tight">{fmtMoney(finalYear.total)}</p>
                 </div>
                 <div className="w-full sm:w-auto sm:text-right border-t border-slate-800/50 sm:border-0 pt-2 sm:pt-0">
                   <p className="text-[10px] text-blue-400/70 font-mono mb-0.5">2047 實質購買力 (拔管退休底線)</p>
@@ -348,29 +311,68 @@
           );
         };
 
+        // --- 主應用 ---
         function App() {
-          const [currentTime, setCurrentTime] = useState(new Date());
-          const [marketData, setMarketData] = useState({ BTC: 0, ETH: 0, ADA: 0 });
+          const [appState, setAppState] = useState(getInitialState());
+          const [privacyMode, setPrivacyMode] = useState(false);
+          const [marketData, setMarketData] = useState({ BTC: 0, ETH: 0, ADA: 0, fng: 50 });
           const [isFetching, setIsFetching] = useState(true);
           const [apiError, setApiError] = useState(false);
+          const [modal, setModal] = useState(null);
 
+          // 讀取本地儲存
           useEffect(() => {
-            const timer = setInterval(() => setCurrentTime(new Date()), 1000);
-            return () => clearInterval(timer);
+            try {
+              const saved = localStorage.getItem(SAVE_KEY);
+              if (saved) {
+                const parsed = JSON.parse(saved);
+                setAppState(prev => ({ ...prev, ...parsed }));
+              }
+            } catch (e) { console.error("Load save failed", e); }
           }, []);
 
-          const fetchPrices = async () => {
+          // 自動儲存
+          useEffect(() => {
+            localStorage.setItem(SAVE_KEY, JSON.stringify(appState));
+          }, [appState]);
+
+          // 月份自動重置 (SOP)
+          useEffect(() => {
+            const currentMonthKey = new Date().toISOString().slice(0, 7); // YYYY-MM
+            if (appState.sopMonthKey !== currentMonthKey) {
+              setAppState(prev => ({
+                ...prev,
+                sopMonthKey: currentMonthKey,
+                sopStatus: { emergency: false, travel: false, dcaBtc: false }
+              }));
+            }
+          }, []);
+
+          // 抓取市場資料 (幣安價格 + 恐貪指數)
+          const fetchMarketData = async () => {
             try {
               setIsFetching(true);
-              const response = await fetch('https://api.binance.com/api/v3/ticker/price?symbols=["BTCUSDT","ETHUSDT","ADAUSDT"]');
-              if (!response.ok) throw new Error('API Error');
-              const data = await response.json();
+              const [priceRes, fngRes] = await Promise.all([
+                fetch('https://api.binance.com/api/v3/ticker/price?symbols=["BTCUSDT","ETHUSDT","ADAUSDT"]'),
+                fetch('https://api.alternative.me/fng/?limit=1')
+              ]);
+              
+              if (!priceRes.ok) throw new Error('API Error');
+              const priceData = await priceRes.json();
+              const fngData = await fngRes.json();
+              
               const prices = {};
-              data.forEach(item => { prices[item.symbol.replace('USDT', '')] = parseFloat(item.price); });
-              setMarketData({ BTC: prices.BTC || 0, ETH: prices.ETH || 0, ADA: prices.ADA || 0 });
+              priceData.forEach(item => { prices[item.symbol.replace('USDT', '')] = parseFloat(item.price); });
+              
+              setMarketData({ 
+                BTC: prices.BTC || FALLBACK_PRICES.BTC, 
+                ETH: prices.ETH || FALLBACK_PRICES.ETH, 
+                ADA: prices.ADA || FALLBACK_PRICES.ADA,
+                fng: parseInt(fngData?.data?.[0]?.value || "50", 10)
+              });
               setApiError(false);
             } catch (error) {
-              setMarketData(FALLBACK_PRICES);
+              setMarketData(prev => ({ ...FALLBACK_PRICES, fng: prev.fng }));
               setApiError(true);
             } finally {
               setTimeout(() => setIsFetching(false), 800);
@@ -378,189 +380,307 @@
           };
 
           useEffect(() => {
-            fetchPrices();
-            const interval = setInterval(fetchPrices, 10000);
+            fetchMarketData();
+            const interval = setInterval(fetchMarketData, 15000); // 15秒更新
             return () => clearInterval(interval);
           }, []);
 
-          const portfolioValueUSDT = useMemo(() => (HOLDINGS.BTC * (marketData.BTC || 0)) + (HOLDINGS.ETH * (marketData.ETH || 0)) + (HOLDINGS.ADA * (marketData.ADA || 0)), [marketData]);
+          // --- 衍生計算 ---
+          const { holdings, sopStatus } = appState;
+          const totalBtc = holdings.btcHot + holdings.btcCold;
+          
+          const portfolioValueUSDT = 
+            (totalBtc * marketData.BTC) + 
+            (holdings.ETH * marketData.ETH) + 
+            (holdings.ADA * marketData.ADA) + 
+            holdings.usdtReserve;
+            
           const portfolioValueTWD = portfolioValueUSDT * TWD_EXCHANGE_RATE;
           
-          const currentRatios = useMemo(() => ({
+          const ratios = {
             ADA_ETH: (marketData.ETH > 0) ? (marketData.ADA / marketData.ETH) : 0,
             ETH_BTC: (marketData.BTC > 0) ? (marketData.ETH / marketData.BTC) : 0,
             ADA_BTC: (marketData.BTC > 0) ? (marketData.ADA / marketData.BTC) : 0
-          }), [marketData]);
+          };
 
+          // --- 輔助函數 ---
           const fmtMoney = (val, currency = 'TWD') => new Intl.NumberFormat('en-US', { style: 'currency', currency, maximumFractionDigits: 0 }).format(val);
+          const mask = (val, formatter) => privacyMode ? "****" : formatter(val);
+          const triggerConfetti = () => { if (typeof confetti === "function") confetti({ particleCount: 150, spread: 80, origin: { y: 0.6 } }); };
+
+          // --- 動作控制 ---
+          const toggleSop = (key) => {
+            setAppState(prev => {
+              const newStatus = { ...prev.sopStatus, [key]: !prev.sopStatus[key] };
+              if (newStatus.emergency && newStatus.travel && newStatus.dcaBtc && !prev.sopStatus[key]) {
+                triggerConfetti();
+              }
+              return { ...prev, sopStatus: newStatus };
+            });
+          };
+
+          const moveBtcToCold = () => {
+            if (holdings.btcHot < 0.05) {
+              setModal({ title: "拒絕操作", body: "熱錢包餘額未達 0.05 BTC 提領門檻。" });
+              return;
+            }
+            setAppState(prev => ({
+              ...prev,
+              holdings: {
+                ...prev.holdings,
+                btcCold: prev.holdings.btcCold + prev.holdings.btcHot,
+                btcHot: 0
+              }
+            }));
+            triggerConfetti();
+            setModal({ title: "🛡️ 防禦增強", body: "已成功將熱錢包 BTC 轉移至實體冷錢包，絕對防禦啟動。" });
+          };
+
+          const handleSniperExecution = (asset, targetRatio) => {
+            setModal({
+              title: `${asset} 狙擊執行`,
+              body: (
+                <div className="space-y-4">
+                  <div className="text-sm text-slate-300">
+                    目標匯率：<span className="font-mono text-white">{targetRatio}</span><br/>
+                    目前持有：<span className="font-mono text-white">{holdings[asset.toLowerCase()]}</span> {asset}
+                  </div>
+                  <input id="snipeInput" type="number" step="0.000001" placeholder={`輸入實際轉換獲得的 ${asset === 'ADA' ? 'ETH' : 'BTC'} 數量`} className="w-full bg-slate-900 border border-slate-700 rounded-xl px-4 py-3 text-lg font-mono text-white outline-none focus:border-emerald-500" />
+                  <button onClick={() => {
+                    const inputVal = parseFloat(document.getElementById('snipeInput').value);
+                    if (!inputVal || inputVal <= 0) return alert("請輸入有效數值");
+                    
+                    setAppState(prev => {
+                      const next = { ...prev };
+                      if (asset === 'ADA') {
+                        next.holdings.eth += inputVal;
+                        next.holdings.ada = 0; // 預設全轉，可依需求調整
+                      } else if (asset === 'ETH') {
+                        next.holdings.btcHot += inputVal;
+                        next.holdings.eth = 0;
+                      }
+                      return next;
+                    });
+                    triggerConfetti();
+                    setModal(null);
+                  }} className="w-full py-3 bg-emerald-600 hover:bg-emerald-500 rounded-xl font-bold text-white transition-colors">
+                    確認轉換並入帳
+                  </button>
+                </div>
+              )
+            });
+          };
+
+          // 設定面版
+          const openSettings = () => {
+            setModal({
+              title: "⚙️ 系統與資產設定",
+              body: (
+                <div className="space-y-4">
+                  <div className="grid grid-cols-2 gap-2 text-xs">
+                    <button onClick={() => {
+                      navigator.clipboard.writeText(JSON.stringify(appState));
+                      alert("已複製備份資料到剪貼簿！");
+                    }} className="flex items-center justify-center py-2 bg-slate-700 hover:bg-slate-600 rounded-lg"><Download className="w-4 h-4 mr-2"/>匯出備份</button>
+                    <button onClick={() => {
+                      const data = prompt("請貼上備份的 JSON 字串：");
+                      if (data) {
+                        try { setAppState(JSON.parse(data)); alert("還原成功！"); setModal(null); } 
+                        catch (e) { alert("無效的資料格式"); }
+                      }
+                    }} className="flex items-center justify-center py-2 bg-slate-700 hover:bg-slate-600 rounded-lg"><Upload className="w-4 h-4 mr-2"/>還原備份</button>
+                  </div>
+                  <div className="border-t border-slate-700 pt-4 space-y-2">
+                    <p className="text-xs text-slate-400 mb-2">手動修正持有量：</p>
+                    {['btcHot', 'btcCold', 'eth', 'ada'].map(key => (
+                      <div key={key} className="flex justify-between items-center">
+                        <span className="text-xs font-mono uppercase">{key}</span>
+                        <input type="number" defaultValue={holdings[key]} 
+                               onChange={(e) => setAppState(prev => ({...prev, holdings: {...prev.holdings, [key]: parseFloat(e.target.value) || 0}}))}
+                               className="bg-slate-900 border border-slate-700 rounded px-2 py-1 text-xs font-mono w-32 text-right text-white" />
+                      </div>
+                    ))}
+                  </div>
+                  <button onClick={() => setAppState(getInitialState())} className="w-full py-2 border border-red-500/50 text-red-400 rounded-lg text-xs mt-4 hover:bg-red-500/10 transition-colors">
+                    ⚠️ 恢復原廠設定 (清空資料)
+                  </button>
+                </div>
+              )
+            });
+          };
+
+          // 進度條元件加工 (支援互動狙擊)
+          const SniperProgressBar = ({ label, current, target, asset, themeColor }) => {
+            const progress = Math.min((current / target) * 100, 100);
+            const isCompleted = progress >= 100;
+            const colors = { blue: 'bg-blue-500', amber: 'bg-amber-500' };
+            
+            return (
+              <div className="mb-5 last:mb-0 relative group">
+                <div className="flex justify-between items-end mb-1.5">
+                  <span className="text-sm font-semibold text-slate-300">{label}</span>
+                  <div className="text-right">
+                    <span className="text-xs font-mono text-slate-500 block mb-0.5">TARGET: {target.toFixed(5)}</span>
+                    <span className={`text-sm font-mono font-bold ${isCompleted ? 'text-emerald-400' : 'text-white'}`}>
+                      LIVE: {current > 0 ? current.toFixed(6) : 'SYNCING'}
+                    </span>
+                  </div>
+                </div>
+                <div className="w-full bg-slate-800 rounded-full h-3 relative overflow-hidden border border-slate-700">
+                  <div className={`h-full rounded-full transition-all duration-1000 ease-out ${isCompleted ? 'bg-emerald-500 shadow-[0_0_10px_rgba(16,185,129,0.5)]' : colors[themeColor]}`} style={{ width: `${progress}%` }} />
+                </div>
+                {isCompleted && (
+                  <button onClick={() => handleSniperExecution(asset, target)} className="w-full mt-2 py-1.5 bg-emerald-600/20 border border-emerald-500/50 text-emerald-400 text-xs font-bold rounded hover:bg-emerald-600 hover:text-white transition-colors animate-pulse">
+                    🔥 點擊執行結算
+                  </button>
+                )}
+              </div>
+            );
+          };
 
           return (
-            <div className="min-h-screen bg-slate-950 text-slate-200 font-sans selection:bg-blue-900 selection:text-white p-2 md:p-4 lg:p-6">
-              <div className="max-w-[1600px] mx-auto pb-10 flex flex-col space-y-6">
+            <div className="min-h-screen bg-slate-950 text-slate-200 font-sans selection:bg-blue-900 selection:text-white p-2 md:p-4 lg:p-6 pb-20">
+              <div className="max-w-[1600px] mx-auto flex flex-col space-y-6">
                 
-                {/* Header */}
+                {/* 頂部 Header */}
                 <header className="flex flex-col md:flex-row justify-between items-start md:items-center bg-slate-900/80 backdrop-blur-md border border-slate-700/60 p-4 md:p-6 rounded-2xl shadow-xl">
                   <div>
                     <h1 className="text-2xl md:text-3xl font-extrabold tracking-tight flex items-center text-white">
                       <Shield className="w-8 h-8 mr-3 text-emerald-400" />
                       投資與人生防禦大憲法 <span className="ml-3 text-sm font-normal text-slate-500 font-mono tracking-normal bg-slate-800 px-2 py-1 rounded">2026.8.15 修訂</span>
                     </h1>
-                    <p className="text-sm text-slate-400 mt-2 font-mono flex items-center">
-                      <span>PHASE: 中繼防禦 & 蓄力期</span>
-                      <span className="mx-3 text-slate-600">|</span>
-                      <span>STATUS: <span className="text-emerald-400 shadow-[0_0_10px_rgba(16,185,129,0.3)]">ONLINE & SECURE</span></span>
-                    </p>
+                    <div className="flex items-center space-x-4 mt-2">
+                      <p className="text-sm text-slate-400 font-mono flex items-center">STATUS: <span className="text-emerald-400 ml-1 shadow-[0_0_10px_rgba(16,185,129,0.3)]">ONLINE</span></p>
+                      <span className="text-slate-600">|</span>
+                      <p className="text-sm font-mono flex items-center">
+                        <span className="text-slate-400 mr-1">F&G:</span> 
+                        <span className={marketData.fng > 75 ? 'text-emerald-400' : marketData.fng < 25 ? 'text-red-400' : 'text-yellow-400'}>{marketData.fng}</span>
+                      </p>
+                    </div>
                   </div>
+                  
                   <div className="mt-4 md:mt-0 flex items-stretch space-x-3">
-                    <div className="bg-slate-950 border border-slate-800 px-4 py-2 rounded-lg text-right">
-                      <p className="text-[10px] text-slate-500 font-mono mb-0.5">EST. NET WORTH (TWD)</p>
+                    <div className="bg-slate-950 border border-slate-800 px-4 py-2 rounded-lg flex flex-col justify-center text-right relative group cursor-pointer" onClick={() => setPrivacyMode(!privacyMode)}>
+                      <p className="text-[10px] text-slate-500 font-mono mb-0.5 flex justify-end items-center gap-1">
+                        EST. NET WORTH (TWD) {privacyMode ? <EyeOff className="w-3 h-3"/> : <Eye className="w-3 h-3"/>}
+                      </p>
                       <p className="text-lg font-mono font-bold text-emerald-400 drop-shadow-[0_0_8px_rgba(16,185,129,0.4)]">
-                        {marketData.BTC > 0 ? fmtMoney(portfolioValueTWD) : 'SYNCING...'}
+                        {marketData.BTC > 0 ? mask(portfolioValueTWD, fmtMoney) : 'SYNCING...'}
                       </p>
                     </div>
-                    <div className="bg-slate-950 border border-slate-800 px-4 py-2 rounded-lg flex flex-col justify-between">
-                      <p className="text-xs font-mono text-slate-300">
-                        {currentTime.toLocaleDateString('zh-TW', { month: '2-digit', day: '2-digit', year: 'numeric' })} 
-                        <span className="ml-2 font-bold text-white">{currentTime.toLocaleTimeString('en-US', { hour12: false })}</span>
-                      </p>
-                      <div className="flex items-center justify-end mt-1">
-                        {apiError ? (
-                          <div className="flex items-center"><div className="h-2 w-2 rounded-full bg-red-500 mr-2 animate-pulse"/><span className="text-[10px] text-red-500 font-mono">FALLBACK DATA</span></div>
-                        ) : (
-                          <div className="flex items-center">
-                            <div className={`h-2 w-2 rounded-full mr-2 ${isFetching ? 'bg-amber-400 animate-pulse' : 'bg-emerald-500'}`}/>
-                            <span className={`text-[10px] font-mono ${isFetching ? 'text-amber-400' : 'text-emerald-500'}`}>BINANCE SYNC</span>
-                          </div>
-                        )}
-                      </div>
-                    </div>
+                    <button onClick={openSettings} className="bg-slate-950 border border-slate-800 px-3 py-2 rounded-lg hover:bg-slate-800 transition-colors flex items-center justify-center text-slate-400 hover:text-white">
+                      <Settings className="w-5 h-5" />
+                    </button>
                   </div>
                 </header>
 
                 <div className="grid grid-cols-1 lg:grid-cols-12 gap-6 flex-1">
                   
-                  {/* 左欄：SOP 與 防禦 */}
+                  {/* 左欄：SOP 與 持倉狀態 */}
                   <div className="lg:col-span-3 space-y-6 flex flex-col">
-                    <Card title="每月 1 分鐘盲操 SOP" icon={CalendarCheck} className="border-t-4 border-t-blue-500">
-                      <p className="text-xs text-slate-400 mb-3 border-b border-slate-700/50 pb-2">執行時機：發薪日。操作完立即關閉，整月禁看盤。</p>
-                      <div className="space-y-3 mt-2">
-                        <label className="flex items-start space-x-3 p-2.5 rounded hover:bg-slate-800/50 transition cursor-pointer border border-slate-800 hover:border-slate-700">
-                          <input type="checkbox" className="mt-1 h-4 w-4 text-blue-500 rounded bg-slate-900 border-slate-600" />
-                          <div>
-                            <span className="text-sm font-medium text-slate-200 block">緊急預備金滿血</span>
-                            <span className="text-xs text-slate-500 font-mono">NT$ 200,000</span>
+                    
+                    {/* 資產儀表板 (新版與舊版融合) */}
+                    <Card title="雙金庫狀態" icon={Save} className="border-t-4 border-t-sky-500">
+                      <div className="space-y-4">
+                        <div className="bg-slate-950/50 rounded-lg p-3 border border-slate-800">
+                          <p className="text-[10px] text-slate-500 font-mono mb-1">HOT WALLET (BTC)</p>
+                          <div className="flex justify-between items-center">
+                            <p className="text-lg font-mono font-bold text-white">{mask(holdings.btcHot, v => v.toFixed(6))}</p>
+                            {holdings.btcHot >= 0.05 && (
+                              <button onClick={moveBtcToCold} className="text-[10px] bg-sky-600/20 text-sky-400 border border-sky-500/50 px-2 py-1 rounded hover:bg-sky-600 hover:text-white transition-colors">
+                                ➔ 轉入冷錢包
+                              </button>
+                            )}
                           </div>
-                        </label>
-                        <label className="flex items-start space-x-3 p-2.5 rounded hover:bg-slate-800/50 transition cursor-pointer border border-slate-800 hover:border-slate-700">
-                          <input type="checkbox" className="mt-1 h-4 w-4 text-blue-500 rounded bg-slate-900 border-slate-600" />
-                          <div>
-                            <span className="text-sm font-medium text-slate-200 block">娛樂旅遊金滿血</span>
-                            <span className="text-[11px] text-amber-400/80 font-mono block mt-0.5">NT$ 50,000 (專款專用，嚴禁罪惡感)</span>
-                          </div>
-                        </label>
-                        <div className="mt-2 pt-3 border-t border-slate-700">
-                          <div className="text-xs text-amber-400 font-bold mb-2 flex items-center justify-between">
-                            <span>無腦市價定投</span>
-                            <span className="bg-amber-500/20 text-amber-500 px-1.5 py-0.5 rounded text-[10px]">~2031.12</span>
-                          </div>
-                          <label className="flex items-center space-x-3 p-3 rounded bg-amber-500/10 border border-amber-500/30 hover:bg-amber-500/20 transition cursor-pointer">
-                            <input type="checkbox" className="h-4 w-4 text-amber-500 rounded bg-slate-900 border-slate-600" />
-                            <span className="text-sm font-bold text-amber-400">買入 NT$ 13,000 BTC</span>
-                          </label>
+                        </div>
+                        <div className="bg-slate-950/50 rounded-lg p-3 border border-slate-800">
+                          <p className="text-[10px] text-slate-500 font-mono mb-1 flex items-center gap-1"><ShieldCheck className="w-3 h-3 text-sky-400"/> COLD WALLET (BTC)</p>
+                          <p className="text-xl font-mono font-bold text-sky-400 drop-shadow-[0_0_8px_rgba(56,189,248,0.3)]">{mask(holdings.btcCold, v => v.toFixed(6))}</p>
+                        </div>
+                        <div className="flex justify-between items-center border-t border-slate-800 pt-3 text-xs">
+                          <span className="text-slate-400">目前總計</span>
+                          <span className="font-mono font-bold text-white">{mask(totalBtc, v => v.toFixed(6))} BTC</span>
                         </div>
                       </div>
                     </Card>
 
-                    <Card title="實體生活防禦紅線" icon={AlertTriangle} className="border-t-4 border-t-red-500 flex-1">
-                      <ul className="text-[13px] space-y-4 text-slate-300">
-                        <li className="flex items-start"><span className="text-red-500 mr-2 mt-0.5">✖</span><div><strong className="text-white block mb-0.5">債務禁令</strong>2035年前殲滅現有信貸，絕對禁止新增負債與槓桿。</div></li>
-                        <li className="flex items-start"><span className="text-red-500 mr-2 mt-0.5">✖</span><div><strong className="text-white block mb-0.5">情緒消費防禦</strong>打著「對老婆/小孩好」名義的推銷(>3,000元)，強制 24h 冷靜期。</div></li>
-                        <li className="flex items-start"><span className="text-red-500 mr-2 mt-0.5">✖</span><div><strong className="text-white block mb-0.5">街頭防禦</strong>問卷/免費試用/愛心 視為「高風險合約」，直接走過。</div></li>
-                        <li className="flex items-start"><span className="text-emerald-500 mr-2 mt-0.5">🛡️</span><div><strong className="text-emerald-400 block mb-0.5">職場 NPC 模式</strong>輪班空檔 100% 無視績效。唯一指標：推進升官等/空大進度，保留體力給太太與咪波。</div></li>
-                      </ul>
-                      <div className="mt-4 pt-3 border-t border-slate-800 text-[10px] text-slate-500 leading-relaxed">
-                        ⚠️ <strong className="text-slate-400">修憲限制：</strong>嚴禁因短期漲跌、FOMO、買房焦慮修改此 SOP。僅限「生老病死/失業」或「法規毀滅」啟動 30 天冷靜期修憲。
+                    {/* SOP 自動重置系統 */}
+                    <Card title={`發薪日盲操 SOP (${appState.sopMonthKey.split('-')[1]}月)`} icon={CalendarCheck} className="border-t-4 border-t-blue-500 flex-1">
+                      <p className="text-[11px] text-slate-400 mb-4 pb-3 border-b border-slate-800">執行時機：每月發薪日。操作完立即關閉，整月禁看盤。每月自動重置。</p>
+                      <div className="space-y-3">
+                        {[
+                          { id: 'emergency', label: '緊急預備金滿血', desc: 'NT$ 200,000' },
+                          { id: 'travel', label: '娛樂旅遊金滿血', desc: 'NT$ 50,000 (嚴禁罪惡感)', color: 'text-amber-400/80' },
+                          { id: 'dcaBtc', label: '無腦市價盲買', desc: 'NT$ 13,000 BTC (~2031)', color: 'text-emerald-400', bold: true }
+                        ].map(item => (
+                          <div key={item.id} onClick={() => toggleSop(item.id)} className={`flex items-start space-x-3 p-3 rounded-lg border transition-all cursor-pointer ${sopStatus[item.id] ? 'bg-emerald-900/20 border-emerald-500/30' : 'bg-slate-900/50 border-slate-800 hover:border-slate-600'}`}>
+                            <div className="mt-0.5">
+                              {sopStatus[item.id] ? <CheckCircle2 className="w-5 h-5 text-emerald-500" /> : <div className="w-5 h-5 rounded-full border-2 border-slate-600" />}
+                            </div>
+                            <div>
+                              <span className={`text-sm block ${sopStatus[item.id] ? 'text-slate-400 line-through' : (item.bold ? 'font-bold text-white' : 'font-medium text-slate-200')}`}>{item.label}</span>
+                              <span className={`text-[11px] font-mono mt-0.5 block ${sopStatus[item.id] ? 'text-slate-500' : (item.color || 'text-slate-500')}`}>{item.desc}</span>
+                            </div>
+                          </div>
+                        ))}
                       </div>
+                    </Card>
+
+                    <Card title="生活防禦絕對紅線" icon={AlertTriangle} className="border-t-4 border-t-red-500">
+                      <ul className="text-[13px] space-y-3 text-slate-300">
+                        <li className="flex items-start"><span className="text-red-500 mr-2 mt-0.5">✖</span><div><strong className="text-white block mb-0.5">債務禁令</strong>2035前殲滅現有信貸，禁新增負債。</div></li>
+                        <li className="flex items-start"><span className="text-red-500 mr-2 mt-0.5">✖</span><div><strong className="text-white block mb-0.5">情緒消費防禦</strong>>3,000元推銷，強制 24h 冷靜期。</div></li>
+                        <li className="flex items-start"><span className="text-emerald-500 mr-2 mt-0.5">🛡️</span><div><strong className="text-emerald-400 block mb-0.5">職場 NPC 模式</strong>輪班空檔 100% 無視績效。推進升官等/空大進度，保留體力。</div></li>
+                      </ul>
                     </Card>
                   </div>
 
-                  {/* 中右欄：動態監控、時間軸與模擬 */}
+                  {/* 中右欄：動態監控與模擬 */}
                   <div className="lg:col-span-9 flex flex-col space-y-6">
                     
                     {/* Live Tickers */}
-                    <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
-                      <div className="bg-slate-800/60 border border-slate-700/80 rounded-xl p-4 flex flex-col justify-center">
-                        <p className="text-xs text-slate-500 font-mono mb-1">LIVE BTC/USDT</p>
-                        <p className="text-xl font-mono font-bold text-white">${marketData.BTC > 0 ? marketData.BTC.toLocaleString() : '---'}</p>
-                      </div>
-                      <div className="bg-slate-800/60 border border-slate-700/80 rounded-xl p-4 flex flex-col justify-center">
-                        <p className="text-xs text-slate-500 font-mono mb-1">LIVE ETH/USDT</p>
-                        <p className="text-xl font-mono font-bold text-white">${marketData.ETH > 0 ? marketData.ETH.toLocaleString() : '---'}</p>
-                      </div>
-                      <div className="bg-slate-800/60 border border-slate-700/80 rounded-xl p-4 flex flex-col justify-center">
-                        <p className="text-xs text-slate-500 font-mono mb-1">LIVE ADA/USDT</p>
-                        <p className="text-xl font-mono font-bold text-white">${marketData.ADA > 0 ? marketData.ADA.toFixed(4) : '---'}</p>
-                      </div>
-                      <div className="bg-slate-900 border border-slate-700 rounded-xl p-4 flex flex-col justify-center relative overflow-hidden group">
-                        <div className="absolute inset-0 bg-gradient-to-br from-emerald-500/10 to-transparent opacity-0 group-hover:opacity-100 transition-opacity" />
-                        <p className="text-xs text-slate-400 font-mono mb-1 relative z-10">星際艦隊總值估算 (USD)</p>
-                        <p className="text-2xl font-mono font-bold text-emerald-400 drop-shadow-[0_0_10px_rgba(16,185,129,0.3)] relative z-10">
-                          {fmtMoney(portfolioValueUSDT, 'USD')}
-                        </p>
-                      </div>
+                    <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+                      {['BTC', 'ETH', 'ADA'].map(coin => (
+                        <div key={coin} className="bg-slate-800/60 border border-slate-700/80 rounded-xl p-4 flex flex-col justify-center">
+                          <p className="text-[11px] text-slate-500 font-mono mb-1">LIVE {coin}/USDT</p>
+                          <p className="text-xl font-mono font-bold text-white">${marketData[coin] > 0 ? marketData[coin].toLocaleString(undefined, {minimumFractionDigits: coin==='ADA'?4:0}) : '---'}</p>
+                        </div>
+                      ))}
                     </div>
 
                     <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
                       {/* 山寨幣殲滅戰 */}
                       <Card title="山寨幣殲滅戰：匯率跳板與熔斷" icon={Target} className="h-full">
-                        <p className="text-xs text-slate-400 mb-5 pb-3 border-b border-slate-800">
-                          戰略紀律：達標即動作，不預測、不留戀、不看網紅分析。
-                        </p>
+                        <p className="text-[11px] text-slate-400 mb-5 pb-3 border-b border-slate-800">戰略紀律：達標即動作，不預測、不留戀。</p>
                         <div className="space-y-6">
                           <div className="relative pl-4 border-l-2 border-slate-700">
                             <div className="absolute -left-[5px] top-1 w-2 h-2 rounded-full bg-blue-500" />
                             <h3 className="text-sm font-bold text-white mb-3">Phase 1: ADA 中繼防禦</h3>
-                            <TacticalProgressBar label="轉 ETH 並質押 (50% ADA)" current={currentRatios.ADA_ETH} target={STRATEGY_TARGETS.ADA_ETH_1} unit="Ratio" themeColor="blue" isCryptoRatio={true} />
-                            <TacticalProgressBar label="極致兌換 (剩餘 50% ADA)" current={currentRatios.ADA_ETH} target={STRATEGY_TARGETS.ADA_ETH_2} unit="Ratio" themeColor="blue" isCryptoRatio={true} />
+                            <SniperProgressBar label="轉 ETH 並質押 (50% ADA)" current={ratios.ADA_ETH} target={STRATEGY_TARGETS.ADA_ETH_1} asset="ADA" themeColor="blue" />
+                            <SniperProgressBar label="極致兌換 (剩餘 50% ADA)" current={ratios.ADA_ETH} target={STRATEGY_TARGETS.ADA_ETH_2} asset="ADA" themeColor="blue" />
                           </div>
                           <div className="relative pl-4 border-l-2 border-slate-700">
                             <div className="absolute -left-[5px] top-1 w-2 h-2 rounded-full bg-amber-500" />
                             <h3 className="text-sm font-bold text-white mb-3">Phase 2: 回歸大本營 BTC</h3>
-                            <TacticalProgressBar label="預備射擊 (解質押)" current={currentRatios.ETH_BTC} target={STRATEGY_TARGETS.ETH_BTC_PREP} unit="Ratio" themeColor="amber" isCryptoRatio={true} />
-                            <TacticalProgressBar label="獲利了結 (100% 轉 BTC)" current={currentRatios.ETH_BTC} target={STRATEGY_TARGETS.ETH_BTC_EXEC} unit="Ratio" themeColor="amber" isCryptoRatio={true} />
-                          </div>
-                          
-                          {/* 備用與死線 */}
-                          <div className="bg-slate-800/50 rounded-lg p-3 border border-slate-700 space-y-3 mt-4">
-                            <div className="flex items-center justify-between">
-                              <span className="text-xs text-slate-300 font-bold flex items-center"><Zap className="w-3 h-3 mr-1 text-yellow-400"/> [備用] ADA 直達 BTC</span>
-                              <span className="text-xs font-mono text-yellow-400">{currentRatios.ADA_BTC.toFixed(8)} / 0.00000550</span>
-                            </div>
-                            <div className="flex items-center justify-between border-t border-slate-700 pt-2">
-                              <span className="text-xs text-rose-400 font-bold flex items-center"><Flame className="w-3 h-3 mr-1"/> 2029/06 最終熔斷死線</span>
-                              <span className="text-[10px] text-slate-400">剩餘山寨 100% 強制斬倉</span>
-                            </div>
+                            <SniperProgressBar label="預備射擊 (解質押)" current={ratios.ETH_BTC} target={STRATEGY_TARGETS.ETH_BTC_PREP} asset="ETH" themeColor="amber" />
+                            <SniperProgressBar label="獲利了結 (100% 轉 BTC)" current={ratios.ETH_BTC} target={STRATEGY_TARGETS.ETH_BTC_EXEC} asset="ETH" themeColor="amber" />
                           </div>
                         </div>
                       </Card>
 
                       {/* 人生奇點備忘錄 */}
                       <Card title="時間軸與人生奇點備忘" icon={Map} className="h-full">
-                        <p className="text-xs text-slate-400 mb-4 pb-3 border-b border-slate-800">
-                          核心戰略：年輕時用 QQQ/BTC 打江山，退休前 10 年用 VOO 守江山。
-                        </p>
                         <div className="space-y-4 relative before:absolute before:inset-0 before:ml-[11px] before:-translate-x-px md:before:mx-auto md:before:translate-x-0 before:h-full before:w-0.5 before:bg-gradient-to-b before:from-transparent before:via-slate-700 before:to-transparent">
-                          
                           {[
                             { year: "2027.01", title: "守護結束，重啟定投", desc: "太太復職，每月恢復 1.3 萬 BTC 定投。", color: "text-amber-400", dot: "bg-amber-500" },
                             { year: "2028.11", title: "算力驗收", desc: "全力以赴完成警察升官等考試。", color: "text-blue-400", dot: "bg-blue-500" },
                             { year: "2031.08", title: "保單奇點閃電戰", desc: "60萬到期保單一筆灌入 BTC/QQQ。後續 6k/月 轉 QQQ (咪波大學護盾)。", color: "text-emerald-400", dot: "bg-emerald-500" },
                             { year: "2031.12", title: "星際權杖封存", desc: "永久停止買入 BTC (達標3顆)。啟動 Ledger 第 25 詞雙備份離線冷儲存。", color: "text-amber-400", dot: "bg-amber-500" },
-                            { year: "2032.01", title: "法幣水庫啟動", desc: "信貸清零。每月 4.45 萬全數買入 QQQ (長達 8 年複利)。啟動孝親費後勤。", color: "text-blue-400", dot: "bg-blue-500" },
+                            { year: "2032.01", title: "法幣水庫啟動", desc: "信貸清零。每月 4.45 萬全數買入 QQQ。啟動孝親費後勤。", color: "text-blue-400", dot: "bg-blue-500" },
                             { year: "2040.01", title: "順序風險防禦", desc: "新資金全面轉向 VOO，建立 2047 年安全提領緩衝區。", color: "text-emerald-400", dot: "bg-emerald-500" },
                             { year: "2047", title: "減額月退登出 (50歲)", desc: "VOO/QQQ 達標 1,500 萬，啟動 4% 提領拔管退休。", color: "text-white font-bold", dot: "bg-white" }
                           ].map((item, idx) => (
-                            <div key={idx} className="relative flex items-center justify-between md:justify-normal md:odd:flex-row-reverse group is-active">
+                            <div key={idx} className="relative flex items-center justify-between md:justify-normal md:odd:flex-row-reverse group">
                               <div className="flex items-center justify-center w-6 h-6 rounded-full border-2 border-slate-900 bg-slate-800 shadow shrink-0 md:order-1 md:group-odd:-translate-x-1/2 md:group-even:translate-x-1/2 z-10">
                                 <div className={`w-2 h-2 rounded-full ${item.dot}`}></div>
                               </div>
@@ -578,8 +698,8 @@
                     </div>
 
                     <Card title="雙引擎退休推算模型 (2026-2047)" icon={TrendingUp} className="flex-1">
-                      <p className="text-xs text-slate-400 mb-4 font-mono">
-                        [ 模型已自動套用大憲法投資金額切換邏輯，Hover 圖表檢視各年度細節 ]
+                      <p className="text-[10px] text-slate-500 mb-4 font-mono uppercase tracking-wider">
+                        [ Interactive Model: Hover chart to inspect projection nodes ]
                       </p>
                       <WealthSimulatorEngine currentAssetTWD={portfolioValueTWD} />
                     </Card>
@@ -587,6 +707,17 @@
                   </div>
                 </div>
               </div>
+
+              {/* 共用 Modal 系統 */}
+              {modal && (
+                <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/80 backdrop-blur-sm" onClick={(e)=> e.target===e.currentTarget && setModal(null)}>
+                  <div className="bg-slate-800 border border-slate-600 w-full max-w-sm rounded-2xl p-6 shadow-2xl relative">
+                    <h3 className="text-xl font-bold text-white mb-4">{modal.title}</h3>
+                    <div className="text-slate-300 mb-6 whitespace-pre-wrap">{modal.body}</div>
+                    <button onClick={()=>setModal(null)} className="w-full py-3 bg-slate-700 hover:bg-slate-600 rounded-xl text-white font-bold transition-colors">關閉</button>
+                  </div>
+                </div>
+              )}
             </div>
           );
         }

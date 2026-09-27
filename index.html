@@ -7,7 +7,7 @@
   <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
   <meta name="format-detection" content="telephone=no,date=no,email=no,address=no">
   <meta name="theme-color" content="#0f172a">
-  <title>Project 2047：終極防禦大憲法 v8.2</title>
+  <title>Project 2047：終極防禦大憲法 v8.4</title>
 
   <script src="https://cdn.tailwindcss.com"></script>
   <script src="https://unpkg.com/react@18/umd/react.production.min.js" crossorigin></script>
@@ -27,7 +27,6 @@
     .mono{ font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Courier New", monospace; }
     .app-shell{ height:100%; display: flex; flex-direction: column; }
     
-    /* 確保底部絕對不會被 Tabbar 擋住 */
     .content-scroll{
       flex: 1; overflow-y:auto; -webkit-overflow-scrolling:touch;
       padding-top: env(safe-area-inset-top);
@@ -45,8 +44,6 @@
     ::-webkit-scrollbar{ width:4px; }
     ::-webkit-scrollbar-track{ background:#1e293b; }
     ::-webkit-scrollbar-thumb{ background:#475569; border-radius:2px; }
-    .animate-pulse-green{ animation:pulse-green 2s infinite; }
-    @keyframes pulse-green{ 0%{ box-shadow:0 0 0 0 rgba(16,185,129,.7); } 70%{ box-shadow:0 0 0 10px rgba(16,185,129,0); } 100%{ box-shadow:0 0 0 0 rgba(16,185,129,0); } }
     .animate-fade-in{ animation:fade-in .3s cubic-bezier(.16,1,.3,1) both; }
     @keyframes fade-in{ from{ opacity:0; transform:translateY(8px); } to{ opacity:1; transform:translateY(0); } }
   </style>
@@ -57,7 +54,6 @@
 <script type="text/babel">
 const { useEffect, useMemo, useRef, useState } = React;
 
-// 絕對防禦：避免白屏的錯誤攔截器
 window.onerror = function (msg, src, line, col) {
   try{
     const root = document.getElementById("root");
@@ -74,7 +70,7 @@ window.onerror = function (msg, src, line, col) {
 
 /* ===== 核心設定與常數 ===== */
 const TWD_EXCHANGE_RATE = 31.8; 
-const SAVE_KEY = "p2047_v8_2_constitution_save";
+const SAVE_KEY = "p2047_v8_4_constitution_save";
 const FIXED_MONTH_PARTS = 4;
 const BLACK_SWAN_WEEKS = 4;
 
@@ -85,40 +81,33 @@ const STRATEGY_TARGETS = {
   ETH_BTC_EXEC: 0.050,
 };
 
-// 輔助工具
+const normalizeConfig = (raw = {}) => {
+  const goalBtc = Math.max(0, Number(raw.goalBtc ?? 3.0));
+  const targetYear = Math.max(2026, Number(raw.targetYear ?? 2047));
+  const monthlyDcaTwd = Math.max(0, Number(raw.monthlyDcaTwd ?? 13000));
+  const loanBalance = Math.max(0, Number(raw.loanBalance ?? 500000));
+  const loanPayment = Math.max(0, Number(raw.loanPayment ?? 15000));
+  const loanRate = Math.max(0, Number(raw.loanRate ?? 2.5));
+  return { goalBtc, targetYear, monthlyDcaTwd, loanBalance, loanPayment, loanRate };
+};
+
 const clamp = (v, min, max) => Math.min(max, Math.max(min, v));
-const parseNum = (s, fallback = 0) => { const n = Number(String(s).replace(/,/g,"")); return Number.isFinite(n) ? n : fallback; };
+const parseNum = (s, fallback = 0) => { 
+  if(s === "" || s === null || s === undefined) return fallback;
+  const n = Number(String(s).replace(/,/g,"")); 
+  return Number.isFinite(n) ? n : fallback; 
+};
 const monthKeyNow = () => { const d = new Date(); return `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,"0")}`; };
 const todayMMDD = () => new Date().toLocaleDateString("zh-TW", { month:"2-digit", day:"2-digit" });
 const fmtMoney = (val, currency = 'TWD') => new Intl.NumberFormat('en-US', { style: 'currency', currency, maximumFractionDigits: 0 }).format(val);
 const triggerConfetti = () => { if (typeof confetti === "function") confetti({ particleCount: 150, spread: 80, origin: { y: 0.6 } }); };
 
-// 預設資料結構 (加入 QQQ 與 VOO)
 const getInitialData = () => ({
-  config: {
-    goalBtc: 3.0,
-    targetYear: 2047,
-    monthlyDcaTwd: 13000,
-    loanBalance: 500000,
-    loanPayment: 15000,
-    loanRate: 2.5
-  },
-  holdings: {
-    btcHot: 0.05,
-    btcCold: 0.55999,
-    eth: 32.5802,
-    ada: 75350.2,
-    usdtReserve: 0,
-    qqq: 0, // VOO 與 QQQ 以 TWD 總值計價
-    voo: 0
-  },
+  config: { goalBtc: 3.0, targetYear: 2047, monthlyDcaTwd: 13000, loanBalance: 500000, loanPayment: 15000, loanRate: 2.5 },
+  holdings: { btcHot: 0.05, btcCold: 0.55999, eth: 32.5802, ada: 75350.2, usdtReserve: 0, qqq: 0, voo: 0 },
   state: {
-    logs: [],
-    consecutiveGreedWeeks: 0,
-    monthPartsRemaining: FIXED_MONTH_PARTS,
-    lastMonthKey: monthKeyNow(),
-    lastWeeklyExecISO: null,
-    sopStatus: { emergency: false, travel: false, dcaBtc: false },
+    logs: [], consecutiveGreedWeeks: 0, monthPartsRemaining: FIXED_MONTH_PARTS, lastMonthKey: monthKeyNow(),
+    lastWeeklyExecISO: null, sopStatus: { emergency: false, travel: false, dcaBtc: false },
     blackSwan: { active: false, remainingWeeks: 0, weeklyBudget: 0, lastSpent: 0 }
   },
   ui: { btcPrice: 65000, fngIndex: 50, ethBtcRatio: 0.05, adaBtcRatio: 0.000008 }
@@ -137,15 +126,20 @@ const Card = ({ title, icon, children, className = "" }) => (
   </div>
 );
 
-const InputField = ({ label, value, onChange, type="text", hint="" }) => (
-  <div className="mb-3">
-    <div className="flex justify-between items-end mb-1 pl-1">
-      <label className="block text-[11px] text-slate-400">{label}</label>
-      {hint && <span className="text-[9px] text-slate-500">{hint}</span>}
+const InputField = ({ label, value, onCommit, type="text", hint="" }) => {
+  const [localVal, setLocalVal] = useState(value);
+  useEffect(() => { setLocalVal(value); }, [value]);
+
+  return (
+    <div className="mb-3">
+      <div className="flex justify-between items-end mb-1 pl-1">
+        <label className="block text-[11px] text-slate-400">{label}</label>
+        {hint && <span className="text-[9px] text-slate-500">{hint}</span>}
+      </div>
+      <input type={type} inputMode="decimal" value={localVal} onChange={(e) => setLocalVal(e.target.value)} onBlur={() => onCommit(localVal)} className="w-full bg-slate-950 border border-slate-700 rounded-lg px-3 py-2 text-sm font-mono text-white outline-none focus:border-emerald-500 transition-colors" />
     </div>
-    <input type={type} inputMode="decimal" value={value} onChange={onChange} className="w-full bg-slate-950 border border-slate-700 rounded-lg px-3 py-2 text-sm font-mono text-white outline-none focus:border-emerald-500 transition-colors" />
-  </div>
-);
+  );
+};
 
 const TacticalProgressBar = ({ label, current, target, unit, themeColor, isCryptoRatio = false, onExecute }) => {
   const safeCurrent = isNaN(current) ? 0 : current;
@@ -196,9 +190,11 @@ const NativeAreaChart = ({ data }) => {
   const innerWidth = width - padding.left - padding.right;
   const innerHeight = height - padding.top - padding.bottom;
   const maxY = Math.max(...data.map(d => d.total)) * 1.1; 
+  // 防呆：如果全數為 0，避免圖表破版
+  const safeMaxY = maxY > 0 ? maxY : 100;
 
   const getX = (index) => padding.left + (index / (data.length - 1)) * innerWidth;
-  const getY = (val) => padding.top + innerHeight - (val / maxY) * innerHeight;
+  const getY = (val) => padding.top + innerHeight - (val / safeMaxY) * innerHeight;
 
   const vooPathTop = data.map((d, i) => `${i === 0 ? 'M' : 'L'} ${getX(i)} ${getY(d.voo)}`).join(' ');
   const vooArea = `${vooPathTop} L ${getX(data.length - 1)} ${getY(0)} L ${getX(0)} ${getY(0)} Z`;
@@ -232,7 +228,7 @@ const NativeAreaChart = ({ data }) => {
             <linearGradient id="gradCrypto" x1="0" y1="0" x2="0" y2="1"><stop offset="0%" stopColor="#f59e0b" stopOpacity="0.8"/><stop offset="100%" stopColor="#f59e0b" stopOpacity="0.2"/></linearGradient>
           </defs>
           <line x1={padding.left} y1={padding.top} x2={width - padding.right} y2={padding.top} stroke="#334155" strokeDasharray="4 4" />
-          <text x={padding.left - 10} y={padding.top + 4} fill="#64748b" textAnchor="end">{(maxY/10000000).toFixed(0)}千萬</text>
+          <text x={padding.left - 10} y={padding.top + 4} fill="#64748b" textAnchor="end">{maxY > 0 ? (maxY/10000000).toFixed(1) + '千萬' : '0'}</text>
           <line x1={padding.left} y1={height - padding.bottom} x2={width - padding.right} y2={height - padding.bottom} stroke="#334155" />
           <text x={padding.left - 10} y={height - padding.bottom + 4} fill="#64748b" textAnchor="end">0</text>
 
@@ -277,57 +273,69 @@ const NativeAreaChart = ({ data }) => {
   );
 };
 
-// 整合最新 QQQ/VOO 的模擬器
+// 解決痛點2：動態提取所有 Config 變數，保證圖表即時連動，並且徹底移除 5000000 預設值
 const WealthSimulatorEngine = ({ cryptoTwd, holdings, config }) => {
   const [rates, setRates] = useState({ btc: 12, qqq: 10, voo: 7, inf: 2.5 });
 
+  const { qqq: initQqq = 0, voo: initVoo = 0 } = holdings;
+  const { loanBalance, loanPayment, loanRate, monthlyDcaTwd, targetYear } = config;
+
   const chartData = useMemo(() => {
-    let qqq = holdings.qqq || 0;
-    let voo = holdings.voo || 0;
-    let crypto = cryptoTwd > 0 ? cryptoTwd : 5000000;
+    let qqq = initQqq;
+    let voo = initVoo;
+    // 徹底解決：直接套用 cryptoTwd，若是 0 則為 0，不再回退 500 萬。
+    let crypto = cryptoTwd || 0; 
     
     let qqqPrin = qqq, vooPrin = voo, cryptoPrin = crypto;
-    let currentLoan = config.loanBalance;
-    const annualLoanPayment = config.loanPayment * 12;
+    let currentLoan = loanBalance;
+    const annualLoanPayment = loanPayment * 12;
     const data = [];
 
     const startYear = 2026;
-    const yearsToSimulate = Math.max(0, config.targetYear - startYear);
+    const yearsToSimulate = Math.max(0, targetYear - startYear);
 
     for (let i = 0; i <= yearsToSimulate; i++) {
       const year = startYear + i;
-      let injectDesc = "複利掛機";
+      let injectDesc = "無新增投入 (純複利掛機)";
       let loanActive = currentLoan > 0;
       let freedUpCash = 0;
 
       if (i > 0) { qqq *= (1 + rates.qqq/100); voo *= (1 + rates.voo/100); crypto *= (1 + rates.btc/100); }
       
-      // 動態信貸精算邏輯
       if (loanActive) {
-        let interest = currentLoan * (config.loanRate / 100);
-        currentLoan -= (annualLoanPayment - interest);
-        if (currentLoan <= 0) { freedUpCash = Math.abs(currentLoan); currentLoan = 0; loanActive = false; }
+        let interest = currentLoan * (loanRate / 100);
+        let principal = annualLoanPayment - interest;
+        if (principal > 0) {
+          currentLoan -= principal;
+          if (currentLoan <= 0) { freedUpCash = Math.abs(currentLoan); currentLoan = 0; loanActive = false; }
+        }
       } else {
-        freedUpCash = annualLoanPayment; // 信貸清零後，整年還款額解放
+        freedUpCash = annualLoanPayment; 
       }
 
-      const baseInvestTwd = config.monthlyDcaTwd * 12;
+      const baseInvestTwd = monthlyDcaTwd * 12;
 
       if (year <= 2031) { 
-        crypto += baseInvestTwd; cryptoPrin += baseInvestTwd;
-        injectDesc = `定投 BTC (${Math.round(config.monthlyDcaTwd/1000)}k/月)`;
+        if(baseInvestTwd > 0) {
+            crypto += baseInvestTwd; cryptoPrin += baseInvestTwd;
+            injectDesc = `定投 BTC (${Math.round(monthlyDcaTwd/1000)}k/月)`;
+        }
         if (year === 2031) {
           qqq += 300000; qqqPrin += 300000; crypto += 300000; cryptoPrin += 300000;
-          injectDesc = "保單閃電戰(+60w) & " + injectDesc;
+          injectDesc = "保單閃電戰(+60w) & " + (baseInvestTwd > 0 ? injectDesc : "無新增定投");
         }
       } else if (year >= 2032 && year <= 2039) {
         let totalInvest = baseInvestTwd + freedUpCash;
-        qqq += totalInvest; qqqPrin += totalInvest;
-        injectDesc = `定投 QQQ (${Math.round(totalInvest/12/1000)}k/月)`;
+        if(totalInvest > 0) {
+            qqq += totalInvest; qqqPrin += totalInvest;
+            injectDesc = `定投 QQQ (${Math.round(totalInvest/12/1000)}k/月)`;
+        }
       } else if (year >= 2040) {
         let totalInvest = baseInvestTwd + freedUpCash;
-        voo += totalInvest; vooPrin += totalInvest;
-        injectDesc = `轉防禦 VOO (${Math.round(totalInvest/12/1000)}k/月)`;
+        if(totalInvest > 0) {
+            voo += totalInvest; vooPrin += totalInvest;
+            injectDesc = `轉防禦 VOO (${Math.round(totalInvest/12/1000)}k/月)`;
+        }
       }
       
       data.push({
@@ -336,7 +344,7 @@ const WealthSimulatorEngine = ({ cryptoTwd, holdings, config }) => {
       });
     }
     return data;
-  }, [rates, cryptoTwd, holdings, config]);
+  }, [rates, cryptoTwd, initQqq, initVoo, loanBalance, loanPayment, loanRate, monthlyDcaTwd, targetYear]);
 
   const finalYear = chartData[chartData.length - 1];
 
@@ -403,7 +411,7 @@ function App(){
 
   useEffect(() => { localStorage.setItem(SAVE_KEY, JSON.stringify(appData)); }, [appData]);
 
-  // 市場報價 API (每30秒)
+  // 市場報價 API
   const fetchMarket = async () => {
     try {
       const [priceRes, fngRes] = await Promise.all([ fetch('https://api.binance.com/api/v3/ticker/price?symbols=["BTCUSDT","ETHUSDT","ADAUSDT"]'), fetch('https://api.alternative.me/fng/?limit=1') ]);
@@ -420,7 +428,6 @@ function App(){
   const cryptoUsdt = (totalBtc * ui.btcPrice) + (holdings.eth * ui.ethBtcRatio * ui.btcPrice) + (holdings.ada * ui.adaBtcRatio * ui.btcPrice) + holdings.usdtReserve;
   const cryptoTwd = cryptoUsdt * TWD_EXCHANGE_RATE;
   
-  // 總資產加入 QQQ 與 VOO (解決痛點2)
   const tradFiTwd = (holdings.qqq || 0) + (holdings.voo || 0);
   const portfolioTwd = cryptoTwd + tradFiTwd;
   
@@ -432,7 +439,6 @@ function App(){
 
   const addLog = (msg, type="info") => setAppData(p => ({ ...p, state: { ...p.state, logs: [{ id: Date.now(), date: todayMMDD(), msg, type }, ...p.state.logs].slice(0, 100) } }));
 
-  // 每週 DCA 執行邏輯
   const executeWeekly = () => {
     const isSameWeek = (a, b) => { if(!a||!b) return false; const wk = d => { const dt=new Date(d); dt.setUTCDate(dt.getUTCDate()+4-(dt.getUTCDay()||7)); return `${dt.getUTCFullYear()}-W${Math.ceil((((dt-new Date(Date.UTC(dt.getUTCFullYear(),0,1)))/86400000)+1)/7)}`; }; return wk(a)===wk(b); };
     if (isSameWeek(state.lastWeeklyExecISO, new Date().toISOString())) return setModal({ title:"本週已鎖定", body:"本週已執行。若需重置請至「設定」頁面解除鎖定。" });
@@ -460,7 +466,6 @@ function App(){
     triggerConfetti();
   };
 
-  // 狙擊結算邏輯 (解決痛點1，不會再紅屏)
   const handleSniper = (fromAsset, toAsset, currentRatio, targetRatio) => {
     if (currentRatio < targetRatio) return alert("匯率未達標，請遵守紀律！");
     const input = prompt(`【${fromAsset} ➔ ${toAsset}】\n請輸入你實際轉換獲得的 ${toAsset} 數量：\n(目前持有 ${holdings[fromAsset.toLowerCase()]} 顆 ${fromAsset})`);
@@ -472,11 +477,37 @@ function App(){
         else if (toAsset === 'ETH') next.holdings.eth += received;
         return next;
       });
-      alert(`成功入帳 ${received} ${toAsset}！\n請記得至「設定」手動扣除賣出的 ${fromAsset} 數量，以符合 50% 或全倉操作紀律。`);
+      alert(`成功入帳 ${received} ${toAsset}！\n請記得至「設定」手動扣除賣出的 ${fromAsset} 數量。`);
       addLog(`狙擊成功：獲得 ${received} ${toAsset}`, "success"); 
       triggerConfetti();
     }
   };
+
+  // 動態推算信貸清零年份
+  const loanClearYear = useMemo(() => {
+    let bal = config.loanBalance;
+    if (bal <= 0) return new Date().getFullYear();
+    const pay = config.loanPayment * 12;
+    if (pay <= 0) return 2099; 
+    for(let i=0; i<30; i++) {
+       bal += bal * (config.loanRate / 100) - pay;
+       if (bal <= 0) return 2026 + i;
+    }
+    return 2099;
+  }, [config.loanBalance, config.loanPayment, config.loanRate]);
+
+  const timelineNodes = useMemo(() => {
+    const nodes = [
+      { year: 2027.01, title: "守護結束，重啟定投", desc: "太太復職，每月恢復定投。", color: "text-amber-400", dot: "bg-amber-500" },
+      { year: 2028.11, title: "算力驗收", desc: "全力以赴完成警察升官等考試。", color: "text-blue-400", dot: "bg-blue-500" },
+      { year: 2031.08, title: "保單奇點閃電戰", desc: "60萬到期保單一筆灌入 BTC/QQQ。", color: "text-emerald-400", dot: "bg-emerald-500" },
+      { year: 2031.12, title: "星際權杖封存", desc: `BTC 達標 ${config.goalBtc} 顆。停止買入 BTC，啟動冷儲存。`, color: "text-amber-400", dot: "bg-amber-500" },
+      { year: loanClearYear + 0.01, title: "法幣水庫啟動 (信貸清零)", desc: `每月釋放之還款金 ${fmtMoney(config.loanPayment)} 轉為全面定投 QQQ。`, color: "text-blue-400", dot: "bg-blue-500" },
+      { year: 2040.01, title: "順序風險防禦", desc: "資金全轉 VOO，建安全緩衝區。", color: "text-emerald-400", dot: "bg-emerald-500" },
+      { year: config.targetYear, title: "減額月退登出", desc: "VOO/QQQ 達標，啟動 4% 提領拔管退休。", color: "text-white", dot: "bg-white", bold: true }
+    ];
+    return nodes.sort((a,b) => a.year - b.year);
+  }, [config.goalBtc, loanClearYear, config.loanPayment, config.targetYear]);
 
   const maskStr = (val, fmtFunc) => privacyMode ? "****" : fmtFunc(val);
   const updater = (category, key, val) => setAppData(p => ({ ...p, [category]: { ...p[category], [key]: val } }));
@@ -517,10 +548,30 @@ function App(){
                 </Card>
               </div>
 
-              {/* 每週 DCA */}
+              {/* 解決痛點3：放入原程式碼附圖 4個方塊版位 */}
+              <div className="grid grid-cols-1 md:grid-cols-4 gap-3">
+                <div className="bg-slate-900/60 rounded-xl border border-slate-700/50 p-4">
+                  <div className="text-[11px] text-slate-500 font-mono mb-1 tracking-wider">LIVE BTC/USDT</div>
+                  <div className="text-xl font-bold font-mono text-white">${ui.btcPrice.toLocaleString(undefined, {minimumFractionDigits:2, maximumFractionDigits:2})}</div>
+                </div>
+                <div className="bg-slate-900/60 rounded-xl border border-slate-700/50 p-4">
+                  <div className="text-[11px] text-slate-500 font-mono mb-1 tracking-wider">LIVE ETH/USDT</div>
+                  <div className="text-xl font-bold font-mono text-white">${(ui.btcPrice * ui.ethBtcRatio).toLocaleString(undefined, {minimumFractionDigits:2, maximumFractionDigits:2})}</div>
+                </div>
+                <div className="bg-slate-900/60 rounded-xl border border-slate-700/50 p-4">
+                  <div className="text-[11px] text-slate-500 font-mono mb-1 tracking-wider">LIVE ADA/USDT</div>
+                  <div className="text-xl font-bold font-mono text-white">${(ui.btcPrice * ui.adaBtcRatio).toLocaleString(undefined, {minimumFractionDigits:4, maximumFractionDigits:4})}</div>
+                </div>
+                <div className="bg-slate-900/80 rounded-xl border border-slate-700/50 p-4 relative overflow-hidden">
+                  <div className="absolute inset-0 bg-gradient-to-br from-emerald-500/10 to-transparent"></div>
+                  <div className="text-[11px] text-slate-400 font-mono mb-1 tracking-wider relative z-10">星際艦隊總值估算</div>
+                  <div className="text-xl font-bold font-mono text-emerald-400 relative z-10">${Math.floor(cryptoUsdt).toLocaleString()}</div>
+                </div>
+              </div>
+
               <Card title="每週 DCA 樞紐" icon="📈">
-                <div className="flex justify-between items-center mb-4 pb-3 border-b border-slate-700/50">
-                  <div><div className="text-[10px] text-slate-500">LIVE BTC</div><div className="text-xl font-mono text-white">${ui.btcPrice.toLocaleString()}</div></div>
+                <div className="flex justify-between items-center mb-4">
+                  <div className="text-slate-300 font-bold text-sm">執行配額監控</div>
                   <div className="text-right"><div className="text-[10px] text-slate-500">恐貪指數</div><div className={`text-xl font-mono font-bold ${ui.fngIndex>75?'text-emerald-400':ui.fngIndex<25?'text-red-400':'text-yellow-400'}`}>{ui.fngIndex}</div></div>
                 </div>
                 <div className="flex justify-between items-center mb-4">
@@ -532,26 +583,6 @@ function App(){
                 </button>
               </Card>
 
-              {/* SOP */}
-              <Card title={`SOP 盲操 (${state.lastMonthKey.split('-')[1]}月)`} icon="📅">
-                <div className="space-y-2">
-                  {[{ id: 'emergency', label: '預備金滿血', desc: 'NT$ 200,000' }, { id: 'travel', label: '娛樂金滿血', desc: 'NT$ 50,000 (無罪惡感)' }, { id: 'dcaBtc', label: `盲買 NT$ ${config.monthlyDcaTwd.toLocaleString()}`, desc: '完成後關閉APP' }].map(item => (
-                    <div key={item.id} onClick={() => {
-                      setAppData(p => {
-                        const next = {...p.state.sopStatus, [item.id]: !p.state.sopStatus[item.id]};
-                        if(next.emergency && next.travel && next.dcaBtc && !p.state.sopStatus[item.id]) { triggerConfetti(); addLog("SOP 盲操全部完成！", "success"); }
-                        return {...p, state: {...p.state, sopStatus: next}};
-                      });
-                    }} className={`flex items-center space-x-3 p-3 rounded-lg border transition-colors cursor-pointer ${state.sopStatus[item.id] ? 'bg-emerald-900/20 border-emerald-500/30' : 'bg-slate-900/50 border-slate-700'}`}>
-                      <div className={`w-5 h-5 flex items-center justify-center rounded-full border-2 ${state.sopStatus[item.id] ? 'bg-emerald-500 border-emerald-500' : 'border-slate-500'}`}>
-                        {state.sopStatus[item.id] && <span className="text-white text-xs font-bold">✓</span>}
-                      </div>
-                      <div><span className={`text-sm block font-bold ${state.sopStatus[item.id] ? 'text-slate-500 line-through' : 'text-slate-200'}`}>{item.label}</span><span className="text-[10px] text-slate-500">{item.desc}</span></div>
-                    </div>
-                  ))}
-                </div>
-              </Card>
-
               {/* 模擬器 */}
               <Card title="動態退休推算模型" icon="🔮" className="p-0 border-t-2 border-blue-500">
                 <div className="p-4 bg-gradient-to-b from-slate-800 to-slate-900">
@@ -559,11 +590,6 @@ function App(){
                   <WealthSimulatorEngine cryptoTwd={cryptoTwd} holdings={holdings} config={config} />
                 </div>
               </Card>
-
-              <div className="px-2">
-                <div className="text-[10px] text-slate-500 mb-2 font-mono uppercase">System Logs</div>
-                <div className="space-y-1.5 font-mono text-xs max-h-40 overflow-y-auto">{state.logs.map(log => (<div key={log.id} className={log.type==="alert"?"text-red-400":log.type==="success"?"text-emerald-400":"text-slate-400"}><span className="opacity-40">[{log.date.slice(5)}]</span> {log.msg}</div>))}</div>
-              </div>
             </div>
           )}
 
@@ -584,14 +610,35 @@ function App(){
 
           {tab === "sop" && (
             <div className="space-y-4 animate-fade-in text-sm text-slate-300 leading-relaxed">
-              <Card title={`終極防禦・執行憲法`} icon="📜" className="border-t-2 border-emerald-500">
+              <Card title="動態憲法時間軸" icon="🗺️" className="border-t-2 border-blue-500">
+                <p className="text-[11px] text-slate-400 mb-4 pb-3 border-b border-slate-800">
+                  💡 系統已自動偵測您的信貸參數，並推算出信貸清零的準確時機。
+                </p>
+                <div className="space-y-4 relative before:absolute before:inset-0 before:ml-[11px] before:h-full before:w-0.5 before:bg-gradient-to-b before:from-transparent before:via-slate-700 before:to-transparent">
+                  {timelineNodes.map((item, idx) => (
+                    <div key={idx} className="relative flex items-center justify-normal group">
+                      <div className="flex items-center justify-center w-6 h-6 rounded-full border-2 border-slate-900 bg-slate-800 shadow shrink-0 z-10">
+                        <div className={`w-2 h-2 rounded-full ${item.dot}`}></div>
+                      </div>
+                      <div className="ml-3 w-full bg-slate-800/40 p-3 rounded-lg border border-slate-700/50 hover:border-slate-600 transition-colors">
+                        <div className="flex items-center justify-between mb-1">
+                          <span className={`text-xs font-bold ${item.color}`}>{String(item.year).replace('.01', '')}</span>
+                        </div>
+                        <h4 className={`text-sm ${item.bold ? 'font-black text-white' : 'font-bold text-slate-200'} mb-1`}>{item.title}</h4>
+                        <p className="text-[11px] text-slate-400 leading-relaxed">{item.desc}</p>
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              </Card>
+
+              <Card title={`終極防禦・執行條例`} icon="📜" className="border-t-2 border-emerald-500">
                 <div className="text-xs text-slate-400 mb-4 pb-2 border-b border-slate-800">執行期間：2026.02 - {config.targetYear}.12｜執行人：[陳祥豪]</div>
                 <ul className="list-disc pl-4 space-y-2 text-xs">
                   <li><strong className="text-emerald-300">每月盲買：</strong>發薪日買入 NT$ {config.monthlyDcaTwd.toLocaleString()} BTC。</li>
-                  <li><strong className="text-emerald-300">2031 閃電戰：</strong>保單 60 萬到期全灌入。</li>
-                  <li><strong className="text-blue-300">2032 轉向：</strong>信貸清零，每月釋出資金全買 QQQ。</li>
-                  <li><strong className="text-blue-300">2040 防禦：</strong>資金全轉 VOO，建安全緩衝區。</li>
-                  <li><strong className="text-red-400">生活防禦：</strong>2035 前禁新增負債。>3000 元消費強制 24h 冷靜。職場啟動 NPC 模式。</li>
+                  <li><strong className="text-emerald-300">防禦核心：</strong>熱錢包超過 0.05 BTC 須立即提至冷錢包。</li>
+                  <li><strong className="text-blue-300">生活防禦：</strong>2035 前禁新增負債。>3000 元消費強制 24h 冷靜。職場啟動 NPC 模式。</li>
+                  <li><strong className="text-red-400">熔斷機制：</strong>若 2029/06 山寨幣仍未達標，100% 強制斬倉換成 BTC，清空沉沒成本。</li>
                 </ul>
               </Card>
             </div>
@@ -601,29 +648,28 @@ function App(){
             <div className="space-y-5 animate-fade-in">
               <Card title="銀行與信貸中控台" icon="💳" className="border-t-2 border-red-500">
                 <div className="grid grid-cols-2 gap-3 mb-2">
-                  <InputField label="信貸總餘額 (TWD)" value={config.loanBalance} type="number" onChange={e => updater('config', 'loanBalance', parseNum(e.target.value))} />
-                  <InputField label="每月還款額 (TWD)" value={config.loanPayment} type="number" onChange={e => updater('config', 'loanPayment', parseNum(e.target.value))} />
-                  <InputField label="信貸年利率 (%)" value={config.loanRate} type="number" onChange={e => updater('config', 'loanRate', parseNum(e.target.value))} />
-                  <InputField label="發薪日投入 (TWD)" value={config.monthlyDcaTwd} type="number" onChange={e => updater('config', 'monthlyDcaTwd', parseNum(e.target.value))} />
+                  <InputField label="信貸總餘額 (TWD)" value={config.loanBalance} type="number" onCommit={v => updater('config', 'loanBalance', parseNum(v))} />
+                  <InputField label="每月還款額 (TWD)" value={config.loanPayment} type="number" onCommit={v => updater('config', 'loanPayment', parseNum(v))} />
+                  <InputField label="信貸年利率 (%)" value={config.loanRate} type="number" onCommit={v => updater('config', 'loanRate', parseNum(v))} />
+                  <InputField label="發薪日投入 (TWD)" value={config.monthlyDcaTwd} type="number" onCommit={v => updater('config', 'monthlyDcaTwd', parseNum(v))} />
                 </div>
                 <p className="text-[10px] text-slate-400 bg-slate-900 p-2 rounded leading-relaxed border border-slate-700">💡 系統會自動精算。信貸清零時，原本還款的現金流會自動灌入 QQQ 進行複利推算。</p>
               </Card>
 
               <Card title="核心資產與長期戰略" icon="🏦" className="border-t-2 border-emerald-500">
                 <div className="grid grid-cols-2 gap-3 mb-4 border-b border-slate-700/50 pb-4">
-                  <InputField label="熱錢包 BTC" value={holdings.btcHot} type="number" onChange={e => updater('holdings', 'btcHot', parseNum(e.target.value))} />
-                  <InputField label="冷錢包 BTC" value={holdings.btcCold} type="number" onChange={e => updater('holdings', 'btcCold', parseNum(e.target.value))} />
-                  <InputField label="ETH 數量" value={holdings.eth} type="number" onChange={e => updater('holdings', 'eth', parseNum(e.target.value))} />
-                  <InputField label="ADA 數量" value={holdings.ada} type="number" onChange={e => updater('holdings', 'ada', parseNum(e.target.value))} />
+                  <InputField label="熱錢包 BTC" value={holdings.btcHot} type="number" onCommit={v => updater('holdings', 'btcHot', parseNum(v))} />
+                  <InputField label="冷錢包 BTC" value={holdings.btcCold} type="number" onCommit={v => updater('holdings', 'btcCold', parseNum(v))} />
+                  <InputField label="ETH 數量" value={holdings.eth} type="number" onCommit={v => updater('holdings', 'eth', parseNum(v))} />
+                  <InputField label="ADA 數量" value={holdings.ada} type="number" onCommit={v => updater('holdings', 'ada', parseNum(v))} />
                   
-                  {/* 解決痛點2：加入 QQQ 與 VOO 輸入 */}
-                  <InputField label="QQQ 總值 (TWD)" value={holdings.qqq} type="number" onChange={e => updater('holdings', 'qqq', parseNum(e.target.value))} hint="台幣等值" />
-                  <InputField label="VOO 總值 (TWD)" value={holdings.voo} type="number" onChange={e => updater('holdings', 'voo', parseNum(e.target.value))} hint="台幣等值" />
-                  <InputField label="預備金 USDT" value={holdings.usdtReserve} type="number" onChange={e => updater('holdings', 'usdtReserve', parseNum(e.target.value))} />
+                  <InputField label="QQQ 總值 (TWD)" value={holdings.qqq} type="number" onCommit={v => updater('holdings', 'qqq', parseNum(v))} hint="台幣等值" />
+                  <InputField label="VOO 總值 (TWD)" value={holdings.voo} type="number" onCommit={v => updater('holdings', 'voo', parseNum(v))} hint="台幣等值" />
+                  <InputField label="預備金 USDT" value={holdings.usdtReserve} type="number" onCommit={v => updater('holdings', 'usdtReserve', parseNum(v))} />
                 </div>
                 <div className="grid grid-cols-2 gap-3">
-                  <InputField label="目標退休年份" value={config.targetYear} type="number" onChange={e => updater('config', 'targetYear', parseNum(e.target.value))} />
-                  <InputField label="最終目標 BTC" value={config.goalBtc} type="number" onChange={e => updater('config', 'goalBtc', parseNum(e.target.value))} />
+                  <InputField label="目標退休年份" value={config.targetYear} type="number" onCommit={v => updater('config', 'targetYear', parseNum(v))} />
+                  <InputField label="最終目標 BTC" value={config.goalBtc} type="number" onCommit={v => updater('config', 'goalBtc', parseNum(v))} />
                 </div>
               </Card>
 

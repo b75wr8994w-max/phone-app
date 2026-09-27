@@ -7,7 +7,7 @@
   <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
   <meta name="format-detection" content="telephone=no,date=no,email=no,address=no">
   <meta name="theme-color" content="#0f172a">
-  <title>Project 2047：終極防禦大憲法 v8.6</title>
+  <title>Project</title>
 
   <script src="https://cdn.tailwindcss.com"></script>
   <script src="https://unpkg.com/react@18/umd/react.production.min.js" crossorigin></script>
@@ -101,7 +101,7 @@ const triggerConfetti = () => { if (typeof confetti === "function") confetti({ p
 
 const getInitialData = () => ({
   config: { goalBtc: 3.0, targetYear: 2047, monthlyDcaTwd: 13000, loanBalance: 500000, loanPayment: 15000, loanRate: 2.5 },
-  holdings: { btcHot: 0.05, btcCold: 0.55999, eth: 32.5802, ada: 75350.2, usdtReserve: 0, qqq: 0, voo: 0 },
+  holdings: { btcHot: 0, btcCold: 0, eth: 0, ada: 0, usdtReserve: 0, qqq: 0, voo: 0 },
   state: {
     logs: [], lastMonthKey: monthKeyNow(), lastDcaMonth: null,
     sopStatus: { emergency: false, travel: false, dcaBtc: false }
@@ -514,12 +514,12 @@ function App(){
   const timelineNodes = useMemo(() => {
     const nodes = [
       { year: 2027.01, title: "守護結束，重啟定投", desc: "太太復職，每月恢復定投。", color: "text-amber-400", dot: "bg-amber-500" },
-      { year: 2028.11, title: "算力驗收", desc: "全力以赴完成警察升官等考試。", color: "text-blue-400", dot: "bg-blue-500" },
-      { year: 2031.08, title: "保單奇點閃電戰", desc: "60萬到期保單一筆灌入 BTC/QQQ。", color: "text-emerald-400", dot: "bg-emerald-500" },
+      { year: 2028.11, title: "算力驗收", desc: "全力以赴完成考試（2028.11～2029.3-5。", color: "text-blue-400", dot: "bg-blue-500" },
+      { year: 2031.08, title: "保單奇點閃電戰", desc: "到期保單分別灌入 BTC/QQQ。", color: "text-emerald-400", dot: "bg-emerald-500" },
       { year: 2031.12, title: "星際權杖封存", desc: `BTC 達標 ${config.goalBtc} 顆。停止買入 BTC，啟動冷儲存。`, color: "text-amber-400", dot: "bg-amber-500" },
       { year: loanClearYear + 0.01, title: "法幣水庫啟動 (信貸清零)", desc: `每月釋放之還款金 ${fmtMoney(config.loanPayment)} 轉為全面定投 QQQ。`, color: "text-blue-400", dot: "bg-blue-500" },
       { year: 2040.01, title: "順序風險防禦", desc: "資金全轉 VOO，建安全緩衝區。", color: "text-emerald-400", dot: "bg-emerald-500" },
-      { year: config.targetYear, title: "減額月退登出", desc: "VOO/QQQ 達標，啟動 4% 提領拔管退休。", color: "text-white", dot: "bg-white", bold: true }
+      { year: config.targetYear, title: "退休登出", desc: "VOO/QQQ 達標，啟動 4% 提領拔管退休。", color: "text-white", dot: "bg-white", bold: true }
     ];
     return nodes.sort((a,b) => a.year - b.year);
   }, [config.goalBtc, loanClearYear, config.loanPayment, config.targetYear]);
@@ -647,7 +647,7 @@ function App(){
               </Card>
 
               <Card title={`終極防禦・執行條例`} icon="📜" className="border-t-2 border-emerald-500">
-                <div className="text-xs text-slate-400 mb-4 pb-2 border-b border-slate-800">執行期間：2026.02 - {config.targetYear}.12｜執行人：[陳祥豪]</div>
+                <div className="text-xs text-slate-400 mb-4 pb-2 border-b border-slate-800">執行期間：2026.02 - {config.targetYear}.12｜執行人：[PUG]</div>
                 <ul className="list-disc pl-4 space-y-2 text-xs">
                   <li><strong className="text-emerald-300">每月盲買：</strong>發薪日買入 NT$ {config.monthlyDcaTwd.toLocaleString()} BTC。</li>
                   <li><strong className="text-emerald-300">防禦核心：</strong>熱錢包超過 0.05 BTC 須立即提至冷錢包。</li>

@@ -7,67 +7,48 @@
   <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
   <meta name="format-detection" content="telephone=no,date=no,email=no,address=no">
   <meta name="theme-color" content="#0f172a">
-  <title>Project 2047：終極防禦執行憲法 v8</title>
+  <title>Project 2047：終極防禦大憲法 v8.1</title>
 
   <script src="https://cdn.tailwindcss.com"></script>
   <script src="https://unpkg.com/react@18/umd/react.production.min.js" crossorigin></script>
   <script src="https://unpkg.com/react-dom@18/umd/react-dom.production.min.js" crossorigin></script>
   <script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
   <script src="https://cdn.jsdelivr.net/npm/canvas-confetti@1.6.0/dist/confetti.browser.min.js"></script>
-  
-  <!-- 引入 Lucide Icons -->
-  <script src="https://unpkg.com/lucide@latest"></script>
 
   <style>
     html, body, #root { height: 100%; }
     html{-webkit-text-size-adjust:100%;text-size-adjust:100%;}
     body{
-      margin:0;
-      background:#0f172a;
-      color:#f1f5f9;
+      margin:0; background:#0f172a; color:#f1f5f9;
       -webkit-tap-highlight-color:transparent;
       font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,Helvetica,Arial,sans-serif;
-      overflow:hidden;
-      overscroll-behavior-y: contain;
+      overflow:hidden; overscroll-behavior-y: contain;
     }
     .mono{ font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Courier New", monospace; }
     .app-shell{ height:100%; display: flex; flex-direction: column; }
     
-    /* 解決痛點1：增加底部 padding 確保內容不被擋住 */
+    /* 確保底部絕對不會被 Tabbar 擋住 */
     .content-scroll{
-      flex: 1;
-      overflow-y:auto;
-      -webkit-overflow-scrolling:touch;
+      flex: 1; overflow-y:auto; -webkit-overflow-scrolling:touch;
       padding-top: env(safe-area-inset-top);
-      padding-bottom: calc(var(--tabbar-h, 85px) + 40px); 
+      padding-bottom: calc(env(safe-area-inset-bottom) + 90px); 
     }
     
     .tabbar{
       position:fixed; left:0; right:0; bottom:0;
-      background: rgba(15,23,42,.95);
-      backdrop-filter: blur(12px);
-      border-top: 1px solid rgba(51,65,85,.6);
-      z-index: 50;
+      background: rgba(15,23,42,.95); backdrop-filter: blur(12px);
+      border-top: 1px solid rgba(51,65,85,.6); z-index: 50;
       padding-bottom: env(safe-area-inset-bottom);
     }
     .tabbar button{touch-action:manipulation;}
-    .tabbar-inner{
-      display:flex; gap:8px; max-width: 32rem; margin: 0 auto; padding: 8px 10px 6px;
-    }
+    .tabbar-inner{ display:flex; gap:8px; max-width: 32rem; margin: 0 auto; padding: 8px 10px 6px; }
     ::-webkit-scrollbar{ width:4px; }
     ::-webkit-scrollbar-track{ background:#1e293b; }
     ::-webkit-scrollbar-thumb{ background:#475569; border-radius:2px; }
-    @keyframes pulse-green{
-      0%{ box-shadow:0 0 0 0 rgba(16,185,129,.7); }
-      70%{ box-shadow:0 0 0 10px rgba(16,185,129,0); }
-      100%{ box-shadow:0 0 0 0 rgba(16,185,129,0); }
-    }
     .animate-pulse-green{ animation:pulse-green 2s infinite; }
-    @keyframes fade-in{
-      from{ opacity:0; transform:translateY(8px); }
-      to{ opacity:1; transform:translateY(0); }
-    }
+    @keyframes pulse-green{ 0%{ box-shadow:0 0 0 0 rgba(16,185,129,.7); } 70%{ box-shadow:0 0 0 10px rgba(16,185,129,0); } 100%{ box-shadow:0 0 0 0 rgba(16,185,129,0); } }
     .animate-fade-in{ animation:fade-in .3s cubic-bezier(.16,1,.3,1) both; }
+    @keyframes fade-in{ from{ opacity:0; transform:translateY(8px); } to{ opacity:1; transform:translateY(0); } }
   </style>
 </head>
 <body>
@@ -76,109 +57,113 @@
 <script type="text/babel">
 const { useEffect, useMemo, useRef, useState } = React;
 
-/* ===== 核心常數與設定 ===== */
-const PLAN_START_ISO = "2026-02-01T00:00:00+08:00";
+// 絕對防禦：避免白屏的錯誤攔截器
+window.onerror = function (msg, src, line, col) {
+  try{
+    const root = document.getElementById("root");
+    if(root) {
+      root.innerHTML = `<div style="padding:20px;color:#f87171;font-family:monospace;background:#450a0a;height:100vh;">
+        <h3 style="font-size:18px;margin-bottom:10px;">⚠️ 系統異常 (防止黑屏)</h3>
+        <p style="opacity:0.9;">${String(msg)}</p>
+        <p style="opacity:0.7;font-size:12px;margin-top:10px;">Line: ${line}:${col}</p>
+      </div>`;
+    }
+  }catch(e){}
+  return false;
+};
+
+/* ===== 核心設定與常數 ===== */
 const TWD_EXCHANGE_RATE = 31.8; 
-
-const SAVE_KEY = "p2047_v8_constitution_save";
-const CACHE_KEY_METRICS = "p2047_v8_metrics_cache";
-const APP_VERSION = "8.0.0";
-
+const SAVE_KEY = "p2047_v8_1_constitution_save";
 const FIXED_MONTH_PARTS = 4;
 const BLACK_SWAN_WEEKS = 4;
-const BLACK_SWAN_STOP_REBOUND = 15;
 
 const ETH_SNIPE_RATIO = 0.050; 
 const ADA_SNIPE_RATIO = 0.0000080;
-const ETH_ALERT_RATIO = 0.045;
-const ADA_ALERT_RATIO = 0.0000075;
 
-const STRATEGY_TARGETS = {
-  ADA_ETH_1: 0.00025,
-  ADA_ETH_2: 0.00040,
-  ETH_BTC_PREP: 0.045,
-  ETH_BTC_EXEC: 0.050,
-};
-
-// 處理長期設定檔 (加入信貸與台幣動態設定)
-const normalizeConfig = (raw = {}) => {
-  const goalBtc = Math.max(0.01, Number(raw.goalBtc ?? 3.0));
-  const targetYear = Math.max(2026, Number(raw.targetYear ?? 2047));
-  const monthlyDcaTwd = Math.max(1000, Number(raw.monthlyDcaTwd ?? 13000));
-  const loanBalance = Math.max(0, Number(raw.loanBalance ?? 500000));
-  const loanPayment = Math.max(0, Number(raw.loanPayment ?? 15000));
-  const loanRate = Math.max(0, Number(raw.loanRate ?? 2.5));
-  return { goalBtc, targetYear, monthlyDcaTwd, loanBalance, loanPayment, loanRate };
-};
-
-const calcReserveCap = (monthlyUsdt) => Math.max(0, Number(monthlyUsdt || 0) * 6);
-
-/* ===== 輔助工具 ===== */
+// 輔助工具
 const clamp = (v, min, max) => Math.min(max, Math.max(min, v));
-const parseNum = (s, fallback = NaN) => { const n = Number(String(s).replace(/,/g,"")); return Number.isFinite(n) ? n : fallback; };
+const parseNum = (s, fallback = 0) => { const n = Number(String(s).replace(/,/g,"")); return Number.isFinite(n) ? n : fallback; };
 const monthKeyNow = () => { const d = new Date(); return `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,"0")}`; };
 const todayMMDD = () => new Date().toLocaleDateString("zh-TW", { month:"2-digit", day:"2-digit" });
-const reboundPctFrom = (low, now) => (low>0 && now>0) ? ((now-low)/low)*100 : 0;
 const fmtMoney = (val, currency = 'TWD') => new Intl.NumberFormat('en-US', { style: 'currency', currency, maximumFractionDigits: 0 }).format(val);
-const sleep = (ms) => new Promise(r => setTimeout(r, ms));
+const triggerConfetti = () => { if (typeof confetti === "function") confetti({ particleCount: 150, spread: 80, origin: { y: 0.6 } }); };
 
-const triggerConfetti = () => {
-  if (typeof confetti === "function") confetti({ particleCount: 150, spread: 80, origin: { y: 0.6 } });
-};
-
-/* ===== 初始狀態 ===== */
-const initialStateNow = () => ({
-  btcHot: 0.0,
-  btcCold: 0.55999,
-  usdtReserve: 0,
-  eth: 32.5802,
-  ada: 75350.2,
-
-  logs: [],
-  consecutiveGreedWeeks: 0,
-  monthPartsRemaining: FIXED_MONTH_PARTS,
-  lastMonthKey: monthKeyNow(),
-  lastWeeklyExecISO: null,
-  
-  sopStatus: { emergency: false, travel: false, dcaBtc: false },
-  disciplineByMonth: {},
-
-  blackSwan: { active: false, remainingWeeks: 0, weeklyBudget: 0, startedAtISO: null, reason: null, anchorPrice: 0, lowPrice: 0, lastSpent: 0 }
+// 預設資料結構
+const getInitialData = () => ({
+  config: {
+    goalBtc: 3.0,
+    targetYear: 2047,
+    monthlyDcaTwd: 13000,
+    loanBalance: 500000,
+    loanPayment: 15000,
+    loanRate: 2.5
+  },
+  holdings: {
+    btcHot: 0.05,
+    btcCold: 0.55999,
+    eth: 32.5802,
+    ada: 75350.2,
+    usdtReserve: 0
+  },
+  state: {
+    logs: [],
+    consecutiveGreedWeeks: 0,
+    monthPartsRemaining: FIXED_MONTH_PARTS,
+    lastMonthKey: monthKeyNow(),
+    lastWeeklyExecISO: null,
+    sopStatus: { emergency: false, travel: false, dcaBtc: false },
+    blackSwan: { active: false, remainingWeeks: 0, weeklyBudget: 0, lastSpent: 0 }
+  },
+  ui: { btcPrice: 65000, fngIndex: 50, ethBtcRatio: 0.05, adaBtcRatio: 0.000008 }
 });
 
 /* =========================================
-   UI 元件：進度條與推算模型
+   UI 共用元件
    ========================================= */
+const Card = ({ title, icon, children, className = "" }) => (
+  <div className={`bg-slate-900/70 rounded-xl border border-slate-700/50 flex flex-col overflow-hidden shadow-lg ${className}`}>
+    <div className="flex items-center px-4 py-3 border-b border-slate-800 bg-slate-800/40">
+      <span className="mr-2 text-lg">{icon}</span>
+      <h2 className="text-sm font-bold text-slate-100">{title}</h2>
+    </div>
+    <div className="p-4 flex-1 flex flex-col relative">{children}</div>
+  </div>
+);
+
+const InputField = ({ label, value, onChange, type="text" }) => (
+  <div className="mb-3">
+    <label className="block text-[11px] text-slate-400 mb-1 pl-1">{label}</label>
+    <input type={type} inputMode="decimal" value={value} onChange={onChange} className="w-full bg-slate-950 border border-slate-700 rounded-lg px-3 py-2 text-sm font-mono text-white outline-none focus:border-emerald-500 transition-colors" />
+  </div>
+);
+
 const TacticalProgressBar = ({ label, current, target, unit, themeColor, isCryptoRatio = false, onExecute }) => {
   const safeCurrent = isNaN(current) ? 0 : current;
   const progress = Math.min((safeCurrent / target) * 100, 100);
   const isCompleted = progress >= 100;
-  
   const colors = {
-    blue: { bg: 'bg-blue-500', shadow: 'shadow-[0_0_10px_rgba(59,130,246,0.5)]', text: 'text-blue-400' },
-    amber: { bg: 'bg-amber-500', shadow: 'shadow-[0_0_10px_rgba(245,158,11,0.5)]', text: 'text-amber-400' },
-    emerald: { bg: 'bg-emerald-500', shadow: 'shadow-[0_0_10px_rgba(16,185,129,0.5)]', text: 'text-emerald-400' }
+    blue: { bg: 'bg-blue-500', text: 'text-blue-400' },
+    amber: { bg: 'bg-amber-500', text: 'text-amber-400' },
+    emerald: { bg: 'bg-emerald-500', text: 'text-emerald-400' }
   };
   const theme = isCompleted ? colors.emerald : colors[themeColor];
-  const displayTarget = isCryptoRatio ? target.toFixed(5) : target.toLocaleString();
-  const displayCurrent = isCryptoRatio ? safeCurrent.toFixed(6) : safeCurrent.toLocaleString();
-
+  
   return (
-    <div className="mb-5 last:mb-0 relative">
+    <div className="mb-6 relative">
       <div className="flex justify-between items-end mb-1.5">
         <span className="text-sm font-semibold text-slate-300">{label}</span>
         <div className="text-right">
-          <span className="text-xs font-mono text-slate-500 block mb-0.5">TARGET: {displayTarget}</span>
-          <span className={`text-sm font-mono font-bold ${theme.text}`}>LIVE: {safeCurrent > 0 ? displayCurrent : 'SYNCING'} {unit}</span>
+          <span className="text-[10px] font-mono text-slate-500 block">TARGET: {isCryptoRatio ? target.toFixed(6) : target}</span>
+          <span className={`text-sm font-mono font-bold ${theme.text}`}>LIVE: {safeCurrent > 0 ? (isCryptoRatio ? safeCurrent.toFixed(6) : safeCurrent) : 'SYNCING'} {unit}</span>
         </div>
       </div>
       <div className="w-full bg-slate-800 rounded-full h-3 relative overflow-hidden border border-slate-700">
-        <div className={`h-full rounded-full transition-all duration-1000 ease-out ${theme.bg} ${theme.shadow}`} style={{ width: `${progress}%` }} />
-        {!isCompleted && safeCurrent > 0 && <div className="absolute inset-0 bg-white/10 animate-pulse" />}
+        <div className={`h-full rounded-full transition-all duration-1000 ${theme.bg}`} style={{ width: `${progress}%` }} />
       </div>
       {isCompleted ? (
-        <button onClick={onExecute} className="w-full mt-2 py-1.5 bg-emerald-600/20 border border-emerald-500/50 text-emerald-400 text-xs font-bold rounded hover:bg-emerald-600 hover:text-white transition-colors animate-pulse">
-          🔥 點擊執行結算入帳
+        <button onClick={onExecute} className="w-full mt-2 py-2 bg-emerald-600/20 border border-emerald-500/50 text-emerald-400 text-xs font-bold rounded-lg hover:bg-emerald-600 hover:text-white transition-colors animate-pulse">
+          🔥 達標！點擊執行結算入帳
         </button>
       ) : (
         <div className="flex justify-between items-center mt-1.5">
@@ -190,37 +175,33 @@ const TacticalProgressBar = ({ label, current, target, unit, themeColor, isCrypt
   );
 };
 
+/* =========================================
+   推算模型與圖表
+   ========================================= */
 const NativeAreaChart = ({ data }) => {
   const [hoverIndex, setHoverIndex] = useState(null);
   if (!data || data.length === 0) return <div className="text-slate-500 text-center py-10">Initializing Model...</div>;
 
-  const width = 800;
-  const height = 280;
+  const width = 800, height = 260;
   const padding = { top: 20, right: 45, bottom: 30, left: 55 };
   const innerWidth = width - padding.left - padding.right;
   const innerHeight = height - padding.top - padding.bottom;
-
   const maxY = Math.max(...data.map(d => d.total)) * 1.1; 
-  const maxValText = (maxY / 10000000).toFixed(0) + ' 千萬';
 
   const getX = (index) => padding.left + (index / (data.length - 1)) * innerWidth;
   const getY = (val) => padding.top + innerHeight - (val / maxY) * innerHeight;
 
   const vooPathTop = data.map((d, i) => `${i === 0 ? 'M' : 'L'} ${getX(i)} ${getY(d.voo)}`).join(' ');
   const vooArea = `${vooPathTop} L ${getX(data.length - 1)} ${getY(0)} L ${getX(0)} ${getY(0)} Z`;
-
   const qqqPathTop = data.map((d, i) => `${i === 0 ? 'M' : 'L'} ${getX(i)} ${getY(d.voo + d.qqq)}`).join(' ');
   const qqqPathBottom = [...data].reverse().map((d, i) => `L ${getX(data.length - 1 - i)} ${getY(data[data.length - 1 - i].voo)}`).join(' ');
   const qqqArea = `${qqqPathTop} ${qqqPathBottom} Z`;
-
   const cryptoPathTop = data.map((d, i) => `${i === 0 ? 'M' : 'L'} ${getX(i)} ${getY(d.total)}`).join(' ');
   const cryptoPathBottom = [...data].reverse().map((d, i) => `L ${getX(data.length - 1 - i)} ${getY(data[data.length - 1 - i].voo + data[data.length - 1 - i].qqq)}`).join(' ');
   const cryptoArea = `${cryptoPathTop} ${cryptoPathBottom} Z`;
   
   const prinPath = data.map((d, i) => `${i === 0 ? 'M' : 'L'} ${getX(i)} ${getY(d.totalPrin)}`).join(' ');
-  const realTotalPath = data.map((d, i) => `${i === 0 ? 'M' : 'L'} ${getX(i)} ${getY(d.realTotal)}`).join(' ');
 
-  // 解決痛點2：改用 touch-pan-y 讓使用者可以上下滑動網頁，同時保有圖表互動
   const handleInteraction = (e) => {
     if (!e || !e.currentTarget) return;
     const rect = e.currentTarget.getBoundingClientRect();
@@ -228,104 +209,58 @@ const NativeAreaChart = ({ data }) => {
     if (clientX === undefined) return;
     const x = clientX - rect.left;
     const relativeX = Math.max(0, Math.min(x - (rect.width * (padding.left/width)), rect.width * (innerWidth/width)));
-    const percentage = relativeX / (rect.width * (innerWidth/width));
-    const index = Math.max(0, Math.min(data.length - 1, Math.round(percentage * (data.length - 1))));
+    const index = Math.max(0, Math.min(data.length - 1, Math.round((relativeX / (rect.width * (innerWidth/width))) * (data.length - 1))));
     setHoverIndex(prev => (prev !== index ? index : prev));
   };
 
-  let tooltipStyle = {};
-  if (hoverIndex !== null) {
-      const isRightSide = hoverIndex > (data.length / 2);
-      if (isRightSide) {
-          tooltipStyle = { right: `${100 - (hoverIndex / (data.length - 1)) * 100}%`, marginRight: '15px' };
-      } else {
-          tooltipStyle = { left: `${(hoverIndex / (data.length - 1)) * 100}%`, marginLeft: '15px' };
-      }
-  }
-
   return (
     <div className="relative w-full h-full flex flex-col font-mono select-none">
-      <div className="relative flex-1 touch-pan-y" 
-           onTouchMove={handleInteraction} onTouchStart={handleInteraction} 
-           onMouseMove={handleInteraction} onMouseLeave={() => setHoverIndex(null)}>
-        
+      {/* 使用 touch-pan-y 允許網頁上下滑動，解決痛點2 */}
+      <div className="relative flex-1 touch-pan-y" onTouchMove={handleInteraction} onTouchStart={handleInteraction} onMouseMove={handleInteraction} onMouseLeave={() => setHoverIndex(null)}>
         <svg viewBox={`0 0 ${width} ${height}`} className="w-full h-full overflow-visible">
           <defs>
             <linearGradient id="gradVOO" x1="0" y1="0" x2="0" y2="1"><stop offset="0%" stopColor="#10b981" stopOpacity="0.8"/><stop offset="100%" stopColor="#10b981" stopOpacity="0.2"/></linearGradient>
             <linearGradient id="gradQQQ" x1="0" y1="0" x2="0" y2="1"><stop offset="0%" stopColor="#3b82f6" stopOpacity="0.8"/><stop offset="100%" stopColor="#3b82f6" stopOpacity="0.2"/></linearGradient>
             <linearGradient id="gradCrypto" x1="0" y1="0" x2="0" y2="1"><stop offset="0%" stopColor="#f59e0b" stopOpacity="0.8"/><stop offset="100%" stopColor="#f59e0b" stopOpacity="0.2"/></linearGradient>
           </defs>
-
-          <rect x={getX(0)} y={padding.top} width={getX(6) - getX(0)} height={innerHeight} fill="rgba(245,158,11,0.03)" />
-          <rect x={getX(6)} y={padding.top} width={getX(14) - getX(6)} height={innerHeight} fill="rgba(59,130,246,0.03)" />
-          <rect x={getX(14)} y={padding.top} width={getX(21) - getX(14)} height={innerHeight} fill="rgba(16,185,129,0.03)" />
-          <text x={getX(3)} y={padding.top + 15} fill="#64748b" textAnchor="middle" fontSize="10">BTC 擴張期</text>
-          <text x={getX(10)} y={padding.top + 15} fill="#64748b" textAnchor="middle" fontSize="10">QQQ 複利期</text>
-          <text x={getX(17.5)} y={padding.top + 15} fill="#64748b" textAnchor="middle" fontSize="10">VOO 防禦期</text>
-
           <line x1={padding.left} y1={padding.top} x2={width - padding.right} y2={padding.top} stroke="#334155" strokeDasharray="4 4" />
-          <text x={padding.left - 10} y={padding.top + 4} fill="#64748b" textAnchor="end">{maxValText}</text>
+          <text x={padding.left - 10} y={padding.top + 4} fill="#64748b" textAnchor="end">{(maxY/10000000).toFixed(0)}千萬</text>
           <line x1={padding.left} y1={height - padding.bottom} x2={width - padding.right} y2={height - padding.bottom} stroke="#334155" />
           <text x={padding.left - 10} y={height - padding.bottom + 4} fill="#64748b" textAnchor="end">0</text>
 
-          {data.map((d, i) => (i % 3 === 0 || i === data.length - 1) && (
-            <text key={i} x={getX(i)} y={height - 10} fill="#94a3b8" textAnchor="middle">{d.year}</text>
-          ))}
+          {data.map((d, i) => (i % 3 === 0 || i === data.length - 1) && (<text key={i} x={getX(i)} y={height - 10} fill="#94a3b8" textAnchor="middle">{d.year}</text>))}
 
           <path d={vooArea} fill="url(#gradVOO)" className="transition-all duration-300" />
           <path d={qqqArea} fill="url(#gradQQQ)" className="transition-all duration-300" />
           <path d={cryptoArea} fill="url(#gradCrypto)" className="transition-all duration-300" />
-          <path d={vooPathTop} fill="none" stroke="#059669" strokeWidth="1" opacity="0.5" />
-          <path d={qqqPathTop} fill="none" stroke="#2563eb" strokeWidth="1" opacity="0.5" />
-          <path d={cryptoPathTop} fill="none" stroke="#d97706" strokeWidth="1.5" />
-
-          <path d={prinPath} fill="none" stroke="#f8fafc" strokeWidth="2.5" strokeDasharray="6 4" className="transition-all duration-300 drop-shadow-md" />
-          <path d={realTotalPath} fill="none" stroke="#60a5fa" strokeWidth="1.5" strokeDasharray="2 4" opacity="0.7" className="transition-all duration-300" />
+          <path d={prinPath} fill="none" stroke="#f8fafc" strokeWidth="2.5" strokeDasharray="6 4" className="drop-shadow-md" />
 
           {hoverIndex !== null && (
             <g>
               <line x1={getX(hoverIndex)} y1={padding.top} x2={getX(hoverIndex)} y2={height - padding.bottom} stroke="rgba(255,255,255,0.3)" strokeWidth="1" strokeDasharray="4 2" />
               <circle cx={getX(hoverIndex)} cy={getY(data[hoverIndex].total)} r="4" fill="#0f172a" stroke="#f59e0b" strokeWidth="2" />
-              <circle cx={getX(hoverIndex)} cy={getY(data[hoverIndex].totalPrin)} r="4" fill="#f8fafc" stroke="#0f172a" strokeWidth="2" />
             </g>
           )}
         </svg>
 
         {hoverIndex !== null && (
-          <div className="absolute pointer-events-none bg-slate-900/95 backdrop-blur-xl border border-slate-600 p-3 rounded-xl shadow-[0_10px_30px_rgba(0,0,0,0.8)] z-20 w-[240px] sm:w-[260px]"
-               style={{ top: '5px', ...tooltipStyle }}>
+          <div className="absolute pointer-events-none bg-slate-900/95 backdrop-blur-xl border border-slate-600 p-3 rounded-xl shadow-[0_10px_30px_rgba(0,0,0,0.8)] z-20 w-[240px]"
+               style={{ top: '5px', ...(hoverIndex > data.length/2 ? {right: `${100 - (hoverIndex/(data.length-1))*100}%`, marginRight:'15px'} : {left: `${(hoverIndex/(data.length-1))*100}%`, marginLeft:'15px'}) }}>
             <div className="flex justify-between items-end border-b border-slate-700 pb-2 mb-2">
-              <span className="text-white font-bold text-sm sm:text-base">{data[hoverIndex].year} 年</span>
-              <span className="text-slate-400 font-normal text-[10px] sm:text-xs">年齡: {data[hoverIndex].age} 歲</span>
+              <span className="text-white font-bold text-sm">{data[hoverIndex].year} 年</span>
+              <span className="text-slate-400 font-normal text-xs">{data[hoverIndex].age} 歲</span>
             </div>
-            
             <div className="bg-slate-800/80 rounded p-2 mb-2 border border-slate-700/50">
-              <p className="text-[10px] text-slate-400 mb-0.5">年度戰略 <span className={data[hoverIndex].loanActive ? "text-red-400" : "text-emerald-400"}>({data[hoverIndex].loanActive ? "信貸還款中" : "信貸已清零"})</span></p>
-              <p className="text-[11px] sm:text-xs text-blue-300 font-bold leading-tight">{data[hoverIndex].injectDesc}</p>
+              <p className="text-[10px] text-slate-400 mb-0.5">策略狀態 <span className={data[hoverIndex].loanActive ? "text-red-400" : "text-emerald-400"}>({data[hoverIndex].loanActive ? "信貸還款中" : "信貸已清零"})</span></p>
+              <p className="text-[11px] text-blue-300 font-bold">{data[hoverIndex].injectDesc}</p>
             </div>
-
-            <div className="space-y-1.5">
-              <p className="text-[11px] sm:text-xs text-amber-400 flex justify-between items-center">
-                <span>Crypto</span><span>{fmtMoney(data[hoverIndex].crypto)}</span>
-              </p>
-              <p className="text-[11px] sm:text-xs text-blue-400 flex justify-between items-center">
-                <span>QQQ</span><span>{fmtMoney(data[hoverIndex].qqq)}</span>
-              </p>
-              <p className="text-[11px] sm:text-xs text-emerald-400 flex justify-between items-center">
-                <span>VOO</span><span>{fmtMoney(data[hoverIndex].voo)}</span>
-              </p>
-              <div className="border-t border-slate-700 my-2 pt-2" />
-              <p className="text-xs sm:text-sm font-bold text-white flex justify-between">
-                <span>帳面淨值</span><span>{fmtMoney(data[hoverIndex].total)}</span>
-              </p>
-              <p className="text-[10px] sm:text-[11px] text-emerald-400 flex justify-between items-center mt-0.5">
-                <span>時間複利</span><span>+{fmtMoney(data[hoverIndex].total - data[hoverIndex].totalPrin)}</span>
-              </p>
-              <div className="bg-blue-900/20 rounded p-1.5 mt-2">
-                 <p className="text-[10px] text-blue-300 flex justify-between">
-                   <span>實質購買力 (扣除通膨)</span><span className="font-bold">{fmtMoney(data[hoverIndex].realTotal)}</span>
-                 </p>
-              </div>
+            <div className="space-y-1">
+              <p className="text-xs text-amber-400 flex justify-between"><span>Crypto</span><span>{fmtMoney(data[hoverIndex].crypto)}</span></p>
+              <p className="text-xs text-blue-400 flex justify-between"><span>QQQ</span><span>{fmtMoney(data[hoverIndex].qqq)}</span></p>
+              <p className="text-xs text-emerald-400 flex justify-between"><span>VOO</span><span>{fmtMoney(data[hoverIndex].voo)}</span></p>
+              <div className="border-t border-slate-700 my-1.5 pt-1.5" />
+              <p className="text-sm font-bold text-white flex justify-between"><span>總淨值</span><span>{fmtMoney(data[hoverIndex].total)}</span></p>
+              <p className="text-[10px] text-blue-300 flex justify-between mt-1 bg-blue-900/20 p-1 rounded"><span>實質購買力(扣通膨)</span><span className="font-bold">{fmtMoney(data[hoverIndex].realTotal)}</span></p>
             </div>
           </div>
         )}
@@ -334,590 +269,352 @@ const NativeAreaChart = ({ data }) => {
   );
 };
 
-// --- 動態信貸精算模型 ---
 const WealthSimulatorEngine = ({ currentAssetTWD, config }) => {
-  const [btcRate, setBtcRate] = useState(12);
-  const [qqqRate, setQqqRate] = useState(10);
-  const [vooRate, setVooRate] = useState(7);
-  const [inflation, setInflation] = useState(2.5);
+  const [rates, setRates] = useState({ btc: 12, qqq: 10, voo: 7, inf: 2.5 });
 
   const chartData = useMemo(() => {
-    let qqq = 0, voo = 0;
-    let crypto = (currentAssetTWD && currentAssetTWD > 0) ? currentAssetTWD : 5135000;
+    let qqq = 0, voo = 0, crypto = currentAssetTWD > 0 ? currentAssetTWD : 5000000;
     let qqqPrin = 0, vooPrin = 0, cryptoPrin = crypto;
-    
-    // 初始化信貸狀態
     let currentLoan = config.loanBalance;
     const annualLoanPayment = config.loanPayment * 12;
     const data = [];
 
-    const yearsToSimulate = config.targetYear - 2026;
-
-    for (let i = 0; i <= yearsToSimulate; i++) {
+    for (let i = 0; i <= (config.targetYear - 2026); i++) {
       const year = 2026 + i;
-      let injectDesc = "";
+      let injectDesc = "複利掛機";
       let loanActive = currentLoan > 0;
-      let freedUpCash = 0; // 信貸清零後釋放的年度現金流
+      let freedUpCash = 0;
+
+      if (i > 0) { qqq *= (1 + rates.qqq/100); voo *= (1 + rates.voo/100); crypto *= (1 + rates.btc/100); }
       
-      if (i > 0) {
-        qqq *= (1 + qqqRate/100); voo *= (1 + vooRate/100); crypto *= (1 + btcRate/100);
-      }
-      
-      // 處理信貸扣款與釋放現金流
+      // 動態信貸精算邏輯
       if (loanActive) {
         let interest = currentLoan * (config.loanRate / 100);
-        let principal = annualLoanPayment - interest;
-        currentLoan -= principal;
-        
-        if (currentLoan <= 0) {
-          freedUpCash = Math.abs(currentLoan); // 當年多出來沒還完的現金
-          currentLoan = 0;
-          loanActive = false;
-        }
+        currentLoan -= (annualLoanPayment - interest);
+        if (currentLoan <= 0) { freedUpCash = Math.abs(currentLoan); currentLoan = 0; loanActive = false; }
       } else {
-        freedUpCash = annualLoanPayment; // 信貸清零後，整年還款額完全解放
+        freedUpCash = annualLoanPayment; // 信貸清零後，整年還款額解放
       }
 
-      // 動態基礎定投額 (根據使用者設定)
       const baseInvestTwd = config.monthlyDcaTwd * 12;
-      
-      if (year >= 2027 && year <= 2031) { 
-        crypto += baseInvestTwd;
-        cryptoPrin += baseInvestTwd;
+
+      if (year <= 2031) { 
+        crypto += baseInvestTwd; cryptoPrin += baseInvestTwd;
         injectDesc = `定投 BTC (${Math.round(config.monthlyDcaTwd/1000)}k/月)`;
-        
         if (year === 2031) {
-          qqq += 300000; qqqPrin += 300000;
-          crypto += 300000; cryptoPrin += 300000;
-          injectDesc = "保單奇點閃電戰灌入 + " + injectDesc;
+          qqq += 300000; qqqPrin += 300000; crypto += 300000; cryptoPrin += 300000;
+          injectDesc = "保單閃電戰(+60w) & " + injectDesc;
         }
       } else if (year >= 2032 && year <= 2039) {
         let totalInvest = baseInvestTwd + freedUpCash;
-        qqq += totalInvest;
-        qqqPrin += totalInvest;
-        injectDesc = `全力定投 QQQ (${Math.round(totalInvest/12/1000)}k/月)`;
+        qqq += totalInvest; qqqPrin += totalInvest;
+        injectDesc = `定投 QQQ (${Math.round(totalInvest/12/1000)}k/月)`;
       } else if (year >= 2040) {
         let totalInvest = baseInvestTwd + freedUpCash;
-        voo += totalInvest;
-        vooPrin += totalInvest;
-        injectDesc = `防禦轉投 VOO (${Math.round(totalInvest/12/1000)}k/月)`;
-      } else {
-        injectDesc = "純複利掛機";
+        voo += totalInvest; vooPrin += totalInvest;
+        injectDesc = `轉防禦 VOO (${Math.round(totalInvest/12/1000)}k/月)`;
       }
       
-      const totalPrin = qqqPrin + vooPrin + cryptoPrin;
-      const total = qqq + voo + crypto;
-      const realTotal = total / Math.pow(1 + inflation/100, i);
-      
       data.push({
-        year, age: 29 + i, qqq: Math.round(qqq), voo: Math.round(voo), crypto: Math.round(crypto), 
-        total: Math.round(total), qqqPrin: Math.round(qqqPrin), vooPrin: Math.round(vooPrin),
-        cryptoPrin: Math.round(cryptoPrin), totalPrin: Math.round(totalPrin), realTotal: Math.round(realTotal),
-        injectDesc, loanActive
+        year, age: 29 + i, qqq, voo, crypto, total: qqq+voo+crypto, totalPrin: qqqPrin+vooPrin+cryptoPrin,
+        realTotal: (qqq+voo+crypto) / Math.pow(1 + rates.inf/100, i), injectDesc, loanActive
       });
     }
     return data;
-  }, [btcRate, qqqRate, vooRate, inflation, currentAssetTWD, config]);
-
-  const SliderControl = ({ label, value, set, min, max, step = 1, color }) => {
-    const colors = { amber: "accent-amber-500 text-amber-400", emerald: "accent-emerald-500 text-emerald-400", blue: "accent-blue-500 text-blue-400", cyan: "accent-cyan-500 text-cyan-400" };
-    return (
-      <div className="flex flex-col">
-        <div className="flex justify-between items-center mb-1.5">
-          <span className="text-[10px] text-slate-400 font-medium">{label}</span>
-          <span className={`text-xs font-mono font-bold ${colors[color].split(' ')[1]}`}>{value}%</span>
-        </div>
-        <input type="range" min={min} max={max} step={step} value={value} onChange={(e) => set(Number(e.target.value))} className={`w-full h-1 bg-slate-700 rounded-lg appearance-none cursor-pointer ${colors[color].split(' ')[0]} outline-none`} />
-      </div>
-    );
-  };
+  }, [rates, currentAssetTWD, config]);
 
   const finalYear = chartData[chartData.length - 1];
 
   return (
     <div className="flex flex-col h-full space-y-4">
-      <div className="bg-slate-900/80 p-3 sm:p-4 rounded-xl border border-slate-700/80 shadow-inner">
-        <div className="grid grid-cols-2 lg:grid-cols-4 gap-x-4 gap-y-4">
-          <SliderControl label="Crypto (%)" value={btcRate} set={setBtcRate} min={5} max={25} color="amber" />
-          <SliderControl label="QQQ (%)" value={qqqRate} set={setQqqRate} min={5} max={15} color="blue" />
-          <SliderControl label="VOO (%)" value={vooRate} set={setVooRate} min={3} max={12} color="emerald" />
-          <SliderControl label="通膨率 (%)" value={inflation} set={setInflation} min={1} max={5} step={0.1} color="cyan" />
-        </div>
-      </div>
-      <div className="flex flex-col sm:flex-row justify-between items-start sm:items-end px-2 border-b border-slate-800 pb-3 gap-3">
-        <div className="w-full sm:w-auto">
-          <p className="text-[10px] text-slate-500 font-mono mb-0.5">EST. {config.targetYear} 退休總淨值</p>
-          <div className="flex flex-col sm:flex-row sm:items-baseline gap-1 sm:gap-3">
-            <p className="text-2xl sm:text-3xl font-bold text-white tracking-tight">{fmtMoney(finalYear.total)}</p>
+      <div className="bg-slate-900/80 p-3 rounded-xl border border-slate-700/80 grid grid-cols-4 gap-2">
+        {['btc', 'qqq', 'voo', 'inf'].map(k => (
+          <div key={k} className="flex flex-col">
+            <div className="flex justify-between items-center mb-1">
+              <span className="text-[10px] text-slate-400 uppercase">{k}</span>
+              <span className="text-[10px] font-mono text-emerald-400">{rates[k]}%</span>
+            </div>
+            <input type="range" min="1" max="25" step="0.5" value={rates[k]} onChange={e => setRates({...rates, [k]: Number(e.target.value)})} className="w-full h-1 bg-slate-700 rounded-lg appearance-none accent-emerald-500" />
           </div>
+        ))}
+      </div>
+      <div className="flex justify-between items-end border-b border-slate-800 pb-2">
+        <div>
+          <p className="text-[10px] text-slate-500">EST. {config.targetYear} 總淨值</p>
+          <p className="text-2xl font-bold text-white">{fmtMoney(finalYear.total)}</p>
         </div>
-        <div className="w-full sm:w-auto sm:text-right border-t border-slate-800/50 sm:border-0 pt-2 sm:pt-0">
-          <p className="text-[10px] text-blue-400/70 font-mono mb-0.5">{config.targetYear} 實質購買力 (拔管退休底線)</p>
-          <p className="text-lg sm:text-xl font-bold text-blue-400 drop-shadow-[0_0_8px_rgba(59,130,246,0.4)] tracking-tight">
-            {fmtMoney(finalYear.realTotal)}
-          </p>
+        <div className="text-right">
+          <p className="text-[10px] text-blue-400/70">實質購買力 (拔管底線)</p>
+          <p className="text-lg font-bold text-blue-400 drop-shadow-[0_0_8px_rgba(59,130,246,0.4)]">{fmtMoney(finalYear.realTotal)}</p>
         </div>
       </div>
-      <div className="flex-1 min-h-[220px] w-full mt-2 relative">
-        <NativeAreaChart data={chartData} />
-      </div>
+      <div className="flex-1 min-h-[200px] mt-2 relative"><NativeAreaChart data={chartData} /></div>
     </div>
   );
 };
 
-
 /* =========================================
-   主應用結構 (融合舊版 API 與新版 UI)
+   主應用結構
    ========================================= */
 function App(){
-  const [state, setState] = useState(initialStateNow());
   const [tab, setTab] = useState("home");
-  const [modal, setModal] = useState(null);
-  const [showAdvanced, setShowAdvanced] = useState(false);
+  const [appData, setAppData] = useState(getInitialData());
   const [privacyMode, setPrivacyMode] = useState(false);
-  const [config, setConfig] = useState(normalizeConfig());
+  const [modal, setModal] = useState(null);
 
-  const tabbarRef = useRef(null);
-  const draftRef = useRef({
-    btcPrice: "90000", fngIndex: "50", ethBtcRatio: "0.050", adaBtcRatio: "0.000008", athDrawdownPct: "0", below200w: "0", extraReserveAdd: "0"
-  });
-  const [ui, setUi] = useState({
-    btcPrice: 90000, fngIndex: 50, ethBtcRatio: 0.050, adaBtcRatio: 0.000008, athDrawdownPct: 0, ma200w: 0, below200w: 0, dataSource: "Manual"
-  });
+  const { config, holdings, state, ui } = appData;
 
-  const monthlyUsdtDca = config.monthlyDcaTwd / TWD_EXCHANGE_RATE;
-  const partUsdt = monthlyUsdtDca / FIXED_MONTH_PARTS;
-  const reserveCap = calcReserveCap(monthlyUsdtDca);
-  const targetDate = new Date(`${config.targetYear}-12-31T23:59:59+08:00`).getTime();
-  const daysLeft = Math.max(0, Math.ceil((targetDate - Date.now()) / (1000*60*60*24)));
-
-  const totalBtc = state.btcHot + state.btcCold;
-  const portfolioUsdApprox = (totalBtc * ui.btcPrice) + (state.eth * ui.ethBtcRatio * ui.btcPrice) + (state.ada * ui.adaBtcRatio * ui.btcPrice) + state.usdtReserve;
-  const portfolioTwd = portfolioUsdApprox * TWD_EXCHANGE_RATE;
-
-  const currentRatios = {
-    ADA_ETH: (ui.ethBtcRatio > 0) ? (ui.adaBtcRatio / ui.ethBtcRatio) : 0,
-    ETH_BTC: ui.ethBtcRatio,
-    ADA_BTC: ui.adaBtcRatio
-  };
-
-  const addLog = (msg, type="info") => {
-    const log = { id: Date.now() + Math.random(), date: todayMMDD(), msg, type };
-    setState(prev => ({ ...prev, logs: [log, ...prev.logs].slice(0, 320) }));
-  };
-
-  const updateInput = (name, val) => { draftRef.current[name] = String(val); const el = document.getElementById(name); if (el) el.value = String(val); };
-  const commitUiNumber = (key, raw, fallback) => { let n = parseNum(raw, fallback); if (!Number.isFinite(n)) n = fallback; setUi(p => ({ ...p, [key]: n })); return n; };
-
-  // 讀取存檔
+  // 初始化與存檔
   useEffect(() => {
-    try{
+    try {
       const saved = localStorage.getItem(SAVE_KEY);
-      if(saved){
+      if (saved) {
         const parsed = JSON.parse(saved);
-        setConfig(normalizeConfig(parsed?.config || {}));
-        
-        const rawState = parsed?.state ? parsed.state : parsed;
         const nowKey = monthKeyNow();
-        if (rawState?.lastMonthKey && rawState.lastMonthKey !== nowKey){
-          rawState.monthPartsRemaining = FIXED_MONTH_PARTS;
-          rawState.lastMonthKey = nowKey;
-          rawState.sopStatus = { emergency: false, travel: false, dcaBtc: false }; // 自動重置 SOP
+        if (parsed.state?.lastMonthKey && parsed.state.lastMonthKey !== nowKey) {
+          parsed.state.monthPartsRemaining = FIXED_MONTH_PARTS;
+          parsed.state.lastMonthKey = nowKey;
+          parsed.state.sopStatus = { emergency: false, travel: false, dcaBtc: false };
         }
-        setState({ ...initialStateNow(), ...rawState });
-        if(parsed?.ui) setUi(p=>({ ...p, ...parsed.ui }));
+        setAppData(prev => ({ config: {...prev.config, ...parsed.config}, holdings: {...prev.holdings, ...parsed.holdings}, state: {...prev.state, ...parsed.state}, ui: {...prev.ui, ...parsed.ui} }));
       }
-    }catch(e){ console.error(e); }
+    } catch (e) {}
   }, []);
 
-  // 寫入存檔
-  useEffect(() => {
-    try{ localStorage.setItem(SAVE_KEY, JSON.stringify({ config, state, ui })); }catch(e){}
-  }, [state, config, ui]);
+  useEffect(() => { localStorage.setItem(SAVE_KEY, JSON.stringify(appData)); }, [appData]);
 
-  // SOP 切換與煙火
-  const toggleSop = (key) => {
-    setState(prev => {
-      const nextStatus = { ...prev.sopStatus, [key]: !prev.sopStatus[key] };
-      if (nextStatus.emergency && nextStatus.travel && nextStatus.dcaBtc && !prev.sopStatus[key]) {
-        triggerConfetti();
-        addLog(`完成 ${prev.lastMonthKey.split('-')[1]} 月無腦盲操紀律！`, "success");
-      }
-      return { ...prev, sopStatus: nextStatus };
-    });
-  };
-
-  // 市場數據 API 抓取
-  const autofillFromApis = async () => {
-    addLog("正在連接市場數據...", "system");
-    try{
-      const [priceRes, fngRes] = await Promise.all([
-        fetch('https://api.binance.com/api/v3/ticker/price?symbols=["BTCUSDT","ETHUSDT","ADAUSDT"]'),
-        fetch('https://api.alternative.me/fng/?limit=1')
-      ]);
+  // 市場報價 API (每30秒)
+  const fetchMarket = async () => {
+    try {
+      const [priceRes, fngRes] = await Promise.all([ fetch('https://api.binance.com/api/v3/ticker/price?symbols=["BTCUSDT","ETHUSDT","ADAUSDT"]'), fetch('https://api.alternative.me/fng/?limit=1') ]);
       const priceData = await priceRes.json();
-      const fngData = await fngRes.json();
-      
-      const prices = {};
-      priceData.forEach(item => { prices[item.symbol.replace('USDT', '')] = parseFloat(item.price); });
-      
-      const btc = prices.BTC || 0;
-      const ethBtc = prices.ETH && btc ? prices.ETH/btc : 0;
-      const adaBtc = prices.ADA && btc ? prices.ADA/btc : 0;
-      const fng = parseInt(fngData?.data?.[0]?.value || "50", 10);
-
-      updateInput("btcPrice", Math.round(btc));
-      updateInput("fngIndex", fng);
-      updateInput("ethBtcRatio", ethBtc.toFixed(5));
-      updateInput("adaBtcRatio", adaBtc.toFixed(7));
-
-      setUi(p=>({ ...p, btcPrice: btc, fngIndex: fng, ethBtcRatio: ethBtc, adaBtcRatio: adaBtc, dataSource: "Live-Binance" }));
-      addLog(`更新成功｜BTC: $${Math.round(btc)}｜恐貪: ${fng}`, "success");
-    }catch(e){
-      addLog("數據抓取失敗，請檢查網路", "warning");
-    }
+      const prices = {}; priceData.forEach(item => { prices[item.symbol.replace('USDT', '')] = parseFloat(item.price); });
+      const fng = parseInt((await fngRes.json())?.data?.[0]?.value || "50", 10);
+      setAppData(p => ({ ...p, ui: { ...p.ui, btcPrice: prices.BTC||p.ui.btcPrice, ethBtcRatio: (prices.ETH/prices.BTC)||p.ui.ethBtcRatio, adaBtcRatio: (prices.ADA/prices.BTC)||p.ui.adaBtcRatio, fngIndex: fng } }));
+    } catch (e) {}
   };
+  useEffect(() => { fetchMarket(); const t = setInterval(fetchMarket, 30000); return () => clearInterval(t); }, []);
 
-  useEffect(() => { setTimeout(autofillFromApis, 200); }, []);
+  // 衍生數據
+  const totalBtc = holdings.btcHot + holdings.btcCold;
+  const portfolioUsdt = (totalBtc * ui.btcPrice) + (holdings.eth * ui.ethBtcRatio * ui.btcPrice) + (holdings.ada * ui.adaBtcRatio * ui.btcPrice) + holdings.usdtReserve;
+  const portfolioTwd = portfolioUsdt * TWD_EXCHANGE_RATE;
+  
+  const monthlyUsdtDca = config.monthlyDcaTwd / TWD_EXCHANGE_RATE;
+  const partUsdt = monthlyUsdtDca / FIXED_MONTH_PARTS;
+  const reserveCapUsdt = monthlyUsdtDca * 6;
 
-  // 核心執行邏輯 (從舊版搬移)
-  const isSameISOWeek = (isoA, isoB) => {
-    if(!isoA || !isoB) return false;
-    const weekKey = (d) => {
-      const date = new Date(Date.UTC(d.getFullYear(), d.getMonth(), d.getDate()));
-      const dayNum = date.getUTCDay() || 7;
-      date.setUTCDate(date.getUTCDate() + 4 - dayNum);
-      const yearStart = new Date(Date.UTC(date.getUTCFullYear(),0,1));
-      return `${date.getUTCFullYear()}-W${Math.ceil((((date - yearStart)/86400000) + 1)/7)}`;
-    };
-    return weekKey(new Date(isoA)) === weekKey(new Date(isoB));
-  };
-  const canExecuteThisWeek = !isSameISOWeek(state.lastWeeklyExecISO, new Date().toISOString());
+  const addLog = (msg, type="info") => setAppData(p => ({ ...p, state: { ...p.state, logs: [{ id: Date.now(), date: todayMMDD(), msg, type }, ...p.state.logs].slice(0, 100) } }));
 
+  // 每週 DCA 執行邏輯
   const executeWeekly = () => {
-    if (!canExecuteThisWeek) {
-      setModal({ title:"本週已執行", body:"本週你已按過一次執行。如抓錯請到【系統】解鎖。" }); return;
-    }
-    const price = ui.btcPrice;
+    const isSameWeek = (a, b) => { if(!a||!b) return false; const wk = d => { const dt=new Date(d); dt.setUTCDate(dt.getUTCDate()+4-(dt.getUTCDay()||7)); return `${dt.getUTCFullYear()}-W${Math.ceil((((dt-new Date(Date.UTC(dt.getUTCFullYear(),0,1)))/86400000)+1)/7)}`; }; return wk(a)===wk(b); };
+    if (isSameWeek(state.lastWeeklyExecISO, new Date().toISOString())) return setModal({ title:"本週已鎖定", body:"本週已執行。若需重置請至「設定」頁面解除鎖定。" });
+
     const fng = ui.fngIndex;
-    if (!(price > 0)) return setModal({ title:"錯誤", body:"請輸入有效的 BTC 價格" });
+    let partsLeft = state.monthPartsRemaining, spend = 0, save = 0, action = "";
 
-    let partsLeft = state.monthPartsRemaining;
-    let spend = 0, save = 0, action = "";
-
-    if (partsLeft <= 0) {
-      action = "本月份額已用完，本次不新增月薪資金";
-    } else {
+    if (partsLeft <= 0) { action = "本月份額已用完"; } else {
       if (fng < 20) { action = "A 極度恐慌：4買0存"; spend = 4; save = 0; }
       else if (fng <= 40) { action = "B 恐懼：3買1存"; spend = 3; save = 1; }
       else if (fng <= 75) { action = "C 中性/偏貪：2買2存"; spend = 2; save = 2; }
       else { action = "D 貪婪：0買4存"; spend = 0; save = 4; }
-
-      if (spend + save > partsLeft) {
-        spend = Math.min(spend, partsLeft); save = Math.min(save, partsLeft - spend);
-      }
+      if (spend + save > partsLeft) { spend = Math.min(spend, partsLeft); save = Math.min(save, partsLeft - spend); }
     }
 
-    const usdtSpent = spend * partUsdt;
-    const usdtSaved = save * partUsdt;
+    const usdtSpent = spend * partUsdt, usdtSaved = save * partUsdt;
+    const btcBought = usdtSpent > 0 ? (usdtSpent / ui.btcPrice) : 0;
+
+    setAppData(p => ({ ...p, holdings: { ...p.holdings, btcHot: p.holdings.btcHot + btcBought, usdtReserve: p.holdings.usdtReserve + usdtSaved }, state: { ...p.state, monthPartsRemaining: partsLeft - (spend + save), lastWeeklyExecISO: new Date().toISOString() } }));
     
-    // 黑天鵝邏輯簡化版
-    const athDD = ui.athDrawdownPct;
-    const blackTriggered = (fng < 20) || (athDD >= 30) || (ui.below200w === 1);
-    let blackSwan = { ...state.blackSwan, lastSpent: 0 };
-    let reserveAfterSave = state.usdtReserve + usdtSaved;
-    let blackSpent = 0;
-
-    if (!blackSwan.active && blackTriggered && reserveAfterSave > 0) {
-      blackSwan = { active: true, remainingWeeks: BLACK_SWAN_WEEKS, weeklyBudget: reserveAfterSave / BLACK_SWAN_WEEKS, startedAtISO: new Date().toISOString(), reason: (fng<20?"FNG<20":"回撤/破200W") };
-      addLog(`黑天鵝啟動：預備金分4週買入`, "alert");
-    }
-    if (blackSwan.active && blackSwan.remainingWeeks > 0) {
-      blackSpent = Math.max(0, Math.min(reserveAfterSave, blackSwan.weeklyBudget));
-      reserveAfterSave -= blackSpent;
-      blackSwan.remainingWeeks -= 1;
-      if (blackSwan.remainingWeeks <= 0) blackSwan.active = false;
-    }
-
-    const totalSpent = usdtSpent + blackSpent;
-    const btcBought = totalSpent > 0 ? (totalSpent / price) : 0;
-
-    setState(prev => ({
-      ...prev, btcHot: prev.btcHot + btcBought, usdtReserve: reserveAfterSave, monthPartsRemaining: partsLeft - (spend + save), blackSwan, lastWeeklyExecISO: new Date().toISOString()
-    }));
-
     addLog(`週報：${action}`, usdtSpent > 0 ? "success" : "warning");
-    if (usdtSaved > 0) addLog(`存入預備金：+${Math.round(usdtSaved)}U`, "info");
-    if (totalSpent > 0) addLog(`本週投入：${Math.floor(totalSpent)}U → ${btcBought.toFixed(6)} BTC`, "success");
+    if (usdtSpent > 0) addLog(`買入 ${btcBought.toFixed(6)} BTC`, "success");
     triggerConfetti();
   };
 
-  const handleSniperExecution = (asset, assetBtcRatio, targetBtcRatio) => {
-    setModal({
-      title: `${asset} 狙擊執行`,
-      body: (
-        <div className="space-y-4">
-          <div className="text-sm text-slate-300">
-            請前往交易所將 <span className="font-bold text-white">{state[asset.toLowerCase()]}</span> 顆 {asset} 兌換。<br/>
-            目標匯率：<span className="font-mono text-white">{targetBtcRatio}</span><br/>
-            目前匯率：<span className="font-mono text-white">{assetBtcRatio}</span>
-          </div>
-          <input id="snipeInput" type="number" step="0.000001" placeholder={`輸入實際轉換獲得的 BTC 數量`} className="w-full bg-slate-900 border border-slate-700 rounded-xl px-4 py-3 text-lg font-mono text-white outline-none focus:border-emerald-500" />
-          <button onClick={() => {
-            const inputVal = parseFloat(document.getElementById('snipeInput').value);
-            if (!inputVal || inputVal <= 0) return alert("請輸入有效數值");
-            setState(prev => ({ ...prev, btcHot: prev.btcHot + inputVal, [asset.toLowerCase()]: 0 }));
-            triggerConfetti(); setModal(null); addLog(`狙擊成功：${asset} → ${inputVal} BTC`, "success");
-          }} className="w-full py-3 bg-emerald-600 hover:bg-emerald-500 rounded-xl font-bold text-white transition-colors">
-            確認轉換並入帳
-          </button>
-        </div>
-      )
-    });
+  const handleSniper = (asset, currentRatio, targetRatio) => {
+    if (currentRatio < targetRatio) return alert("匯率未達標");
+    const input = prompt(`請輸入實際轉換獲得的 BTC 數量 (目前持有 ${holdings[asset.toLowerCase()]} ${asset}):`);
+    const btc = parseFloat(input);
+    if (btc > 0) {
+      setAppData(p => ({ ...p, holdings: { ...p.holdings, btcHot: p.holdings.btcHot + btc, [asset.toLowerCase()]: 0 } }));
+      addLog(`狙擊成功：轉換得 ${btc} BTC`, "success"); triggerConfetti();
+    }
   };
 
-  // UI Components
-  const Card = ({ title, icon, children, className = "" }) => (
-    <div className={`bg-slate-800 border border-slate-700/50 rounded-2xl p-5 shadow-lg ${className}`}>
-      <div className="flex items-center space-x-2 mb-4">
-        {icon} <h3 className="font-bold text-white">{title}</h3>
-      </div>
-      {children}
-    </div>
-  );
-
-  const TabBtn = ({id, label, icon}) => (
-    <button onClick={() => setTab(id)} className={`flex-1 rounded-xl py-2 text-xs font-bold transition-all flex flex-col items-center justify-center gap-1 ${tab === id ? "bg-slate-800 text-emerald-300 border border-slate-700" : "text-slate-300/70 hover:bg-slate-800/60"}`}>
-      <span className="text-base">{icon}</span> <span className="text-[11px]">{label}</span>
-    </button>
-  );
-
-  const InputField = ({id, label, defaultVal, onCommit, type="text"}) => (
-    <div className="space-y-1">
-      <label className="text-[11px] text-slate-400 ml-1">{label}</label>
-      <input id={id} type={type} inputMode="decimal" defaultValue={defaultVal} onBlur={(e)=> onCommit(e.target.value)} className="w-full bg-slate-900 border border-slate-700 rounded-xl px-4 py-3 text-sm font-mono text-white focus:outline-none focus:border-emerald-500" />
-    </div>
-  );
+  const mask = (val, fmtFunc) => privacyMode ? "****" : fmtFunc(val);
+  const updater = (category, key, val) => setAppData(p => ({ ...p, [category]: { ...p[category], [key]: val } }));
 
   return (
-    <div className="app-shell select-none">
-      
-      {/* 頭部資訊欄 */}
-      <div className="sticky top-0 z-20 bg-slate-900/90 backdrop-blur border-b border-slate-800 px-5 py-4 shadow-2xl">
-        <div className="flex justify-between items-end mb-3">
-          <div onClick={()=>setPrivacyMode(!privacyMode)} className="cursor-pointer">
-            <div className="text-[10px] text-slate-500 tracking-widest uppercase mb-1">
-              Project {config.targetYear} {privacyMode ? "🙈" : ""}
-            </div>
-            <div className="text-2xl font-black font-mono tracking-tight text-white flex items-center gap-2">
-              {privacyMode ? "****" : totalBtc.toFixed(4)} <span className="text-sm text-slate-500 font-normal">/ {config.goalBtc}</span>
-            </div>
-            <div className="text-[10px] text-slate-500 mt-1">點擊切換隱私模式</div>
-          </div>
-          <div className="text-right">
-            <div className="text-[10px] text-slate-500 mb-1">倒數（至 {config.targetYear}/12/31）</div>
-            <div className="text-sm font-bold text-emerald-400 font-mono">{daysLeft} D</div>
-            <div className="text-[10px] mt-1 text-slate-500">
-              EST TWD: <span className="text-emerald-400 font-bold">{privacyMode ? "****" : fmtMoney(portfolioTwd)}</span>
-            </div>
+    <div className="app-shell">
+      {/* 頂部導航 */}
+      <div className="bg-slate-900/90 backdrop-blur-md border-b border-slate-800 px-4 py-3 z-10 flex justify-between items-center shadow-lg">
+        <div onClick={()=>setPrivacyMode(!privacyMode)} className="cursor-pointer">
+          <div className="text-[10px] text-slate-500 font-mono mb-0.5 flex items-center gap-1">Project {config.targetYear} {privacyMode?'🙈':''}</div>
+          <div className="text-xl font-bold font-mono text-white flex items-center gap-2">
+            {mask(totalBtc, v=>v.toFixed(4))} <span className="text-xs text-slate-500 font-normal">/ {config.goalBtc} BTC</span>
           </div>
         </div>
-        <div className="h-1.5 bg-slate-800 rounded-full overflow-hidden">
-          <div className="h-full bg-gradient-to-r from-emerald-600 to-green-400 transition-all duration-1000" style={{width: `${Math.min((totalBtc/config.goalBtc)*100, 100)}%`}} />
+        <div className="text-right">
+          <div className="text-[10px] text-slate-500 mb-0.5">倒數至 {config.targetYear}</div>
+          <div className="text-sm font-bold text-emerald-400 font-mono drop-shadow-[0_0_8px_rgba(16,185,129,0.3)]">{mask(portfolioTwd, fmtMoney)}</div>
         </div>
       </div>
 
-      {/* 滑動內容區塊 */}
+      {/* 滾動內容區 */}
       <div className="content-scroll">
-        <div className="p-4 space-y-4 max-w-lg mx-auto">
+        <div className="p-4 space-y-5 max-w-lg mx-auto">
           
           {tab === "home" && (
-            <div className="space-y-4 animate-fade-in">
+            <div className="space-y-5 animate-fade-in">
               <div className="grid grid-cols-2 gap-3">
-                <Card title="Hot Wallet" icon={<Zap className="w-4 h-4 text-amber-500"/>} className="p-4 border-t-2 border-t-amber-500">
-                  <div className="text-lg font-mono font-bold text-amber-400 mb-2">{privacyMode ? "****" : state.btcHot.toFixed(6)}</div>
+                <Card title="Hot Wallet" icon="⚡" className="border-t-2 border-t-amber-500">
+                  <div className="text-lg font-mono font-bold text-amber-400 mb-3">{mask(holdings.btcHot, v=>v.toFixed(6))}</div>
                   <button onClick={() => {
-                    if(state.btcHot < 0.05) return setModal({title:"拒絕", body:"未達 0.05 BTC 門檻"});
-                    setState(p=>({...p, btcCold: p.btcCold + p.btcHot, btcHot: 0})); addLog("提領至冷錢包成功", "secure"); triggerConfetti();
-                  }} className="text-[10px] py-2 rounded font-bold border bg-slate-900 border-slate-700 text-slate-300 w-full hover:bg-slate-700">➔ 轉冷錢包</button>
+                    if(holdings.btcHot < 0.05) return setModal({title:"拒絕", body:"未達 0.05 BTC 提領門檻"});
+                    setAppData(p=>({...p, holdings: {...p.holdings, btcCold: p.holdings.btcCold + p.holdings.btcHot, btcHot: 0}})); addLog("轉冷錢包成功", "secure"); triggerConfetti();
+                  }} className="text-[10px] py-2 rounded bg-slate-950 border border-slate-700 text-slate-300 w-full hover:bg-slate-700 font-bold">➔ 轉實體冷錢包</button>
                 </Card>
-                <Card title="Cold Wallet" icon={<ShieldCheck className="w-4 h-4 text-sky-500"/>} className="p-4 border-t-2 border-t-sky-500">
-                  <div className="text-lg font-mono font-bold text-sky-400">{privacyMode ? "****" : state.btcCold.toFixed(6)}</div>
+                <Card title="Cold Wallet" icon="🛡️" className="border-t-2 border-t-sky-500">
+                  <div className="text-lg font-mono font-bold text-sky-400 drop-shadow-[0_0_8px_rgba(56,189,248,0.3)]">{mask(holdings.btcCold, v=>v.toFixed(6))}</div>
                   <div className="text-[10px] text-slate-500 mt-auto">絕對防禦領域</div>
                 </Card>
               </div>
 
-              {/* SOP 盲操清單 */}
-              <Card title={`發薪日盲操 (${state.lastMonthKey.split('-')[1]}月)`} icon={<CalendarCheck className="w-5 h-5 text-blue-400"/>} className="border-t-2 border-t-blue-500">
-                <div className="space-y-2.5">
-                  {[
-                    { id: 'emergency', label: '緊急預備金滿血', desc: 'NT$ 200,000' },
-                    { id: 'travel', label: '娛樂旅遊金滿血', desc: 'NT$ 50,000 (嚴禁罪惡感)' },
-                    { id: 'dcaBtc', label: `無腦盲買 NT$ ${config.monthlyDcaTwd.toLocaleString()}`, desc: '完成後關閉APP' }
-                  ].map(item => (
-                    <div key={item.id} onClick={() => toggleSop(item.id)} className={`flex items-center space-x-3 p-3 rounded-lg border transition-all cursor-pointer ${state.sopStatus[item.id] ? 'bg-emerald-900/20 border-emerald-500/30' : 'bg-slate-900 border-slate-700 hover:border-slate-600'}`}>
-                      <div className="w-5 h-5 flex items-center justify-center shrink-0">
-                        {state.sopStatus[item.id] ? <div className="w-3 h-3 bg-emerald-500 rounded-full" /> : <div className="w-4 h-4 rounded-full border-2 border-slate-600" />}
+              {/* 每週 DCA */}
+              <Card title="每週 DCA 樞紐" icon="📈">
+                <div className="flex justify-between items-center mb-4 pb-3 border-b border-slate-700/50">
+                  <div><div className="text-[10px] text-slate-500">LIVE BTC</div><div className="text-xl font-mono text-white">${ui.btcPrice.toLocaleString()}</div></div>
+                  <div className="text-right"><div className="text-[10px] text-slate-500">恐貪指數</div><div className={`text-xl font-mono font-bold ${ui.fngIndex>75?'text-emerald-400':ui.fngIndex<25?'text-red-400':'text-yellow-400'}`}>{ui.fngIndex}</div></div>
+                </div>
+                <div className="flex justify-between items-center mb-4">
+                  <span className="text-[10px] text-slate-400">本月份額 ({FIXED_MONTH_PARTS} 份)</span>
+                  <div className="flex gap-1">{[...Array(FIXED_MONTH_PARTS)].map((_, i) => (<div key={i} className={`h-2.5 w-6 rounded-sm border ${i < state.monthPartsRemaining ? 'bg-emerald-500 border-emerald-400' : 'bg-slate-800 border-slate-700'}`} />))}</div>
+                </div>
+                <button onClick={executeWeekly} className="w-full py-3.5 rounded-xl font-bold bg-emerald-600 text-white hover:bg-emerald-500 shadow-lg text-sm">
+                  執行本週 DCA 策略
+                </button>
+              </Card>
+
+              {/* SOP */}
+              <Card title={`SOP 盲操 (${state.lastMonthKey.split('-')[1]}月)`} icon="📅">
+                <div className="space-y-2">
+                  {[{ id: 'emergency', label: '預備金滿血', desc: 'NT$ 200,000' }, { id: 'travel', label: '娛樂金滿血', desc: 'NT$ 50,000 (無罪惡感)' }, { id: 'dcaBtc', label: `盲買 NT$ ${config.monthlyDcaTwd.toLocaleString()}`, desc: '完成後關閉APP' }].map(item => (
+                    <div key={item.id} onClick={() => toggleSop(item.id)} className={`flex items-center space-x-3 p-3 rounded-lg border transition-colors cursor-pointer ${state.sopStatus[item.id] ? 'bg-emerald-900/20 border-emerald-500/30' : 'bg-slate-900/50 border-slate-700'}`}>
+                      <div className={`w-5 h-5 flex items-center justify-center rounded-full border-2 ${state.sopStatus[item.id] ? 'bg-emerald-500 border-emerald-500' : 'border-slate-500'}`}>
+                        {state.sopStatus[item.id] && <span className="text-white text-xs font-bold">✓</span>}
                       </div>
-                      <div>
-                        <span className={`text-sm block ${state.sopStatus[item.id] ? 'text-slate-500 line-through' : 'text-slate-200 font-bold'}`}>{item.label}</span>
-                        <span className="text-[10px] text-slate-500">{item.desc}</span>
-                      </div>
+                      <div><span className={`text-sm block font-bold ${state.sopStatus[item.id] ? 'text-slate-500 line-through' : 'text-slate-200'}`}>{item.label}</span><span className="text-[10px] text-slate-500">{item.desc}</span></div>
                     </div>
                   ))}
                 </div>
               </Card>
 
-              {/* 每週決策樞紐 */}
-              <Card title="每週 DCA 樞紐" icon={<Activity className="w-5 h-5 text-emerald-400"/>}>
-                <div className="flex justify-between items-center mb-4 pb-3 border-b border-slate-700/50">
-                  <div>
-                    <div className="text-[10px] text-slate-500">LIVE BTC</div>
-                    <div className="text-xl font-mono text-white">${ui.btcPrice.toLocaleString()}</div>
-                  </div>
-                  <div className="text-right">
-                    <div className="text-[10px] text-slate-500">恐貪指數</div>
-                    <div className={`text-xl font-mono font-bold ${ui.fngIndex > 75 ? 'text-emerald-400' : ui.fngIndex < 25 ? 'text-red-400' : 'text-yellow-400'}`}>{ui.fngIndex}</div>
-                  </div>
-                </div>
-                
-                <div className="flex justify-between items-center mb-3">
-                  <span className="text-[10px] text-slate-400">本月份額 ({FIXED_MONTH_PARTS} 份)</span>
-                  <div className="flex gap-1">
-                    {[...Array(FIXED_MONTH_PARTS)].map((_, i) => (
-                      <div key={i} className={`h-2.5 w-6 rounded-sm border ${i < state.monthPartsRemaining ? 'bg-emerald-500 border-emerald-400 shadow-[0_0_8px_rgba(16,185,129,0.5)]' : 'bg-slate-800 border-slate-700'}`} />
-                    ))}
-                  </div>
-                </div>
-
-                <button onClick={executeWeekly} className={`w-full py-4 rounded-xl font-bold transition-all shadow-lg ${canExecuteThisWeek ? 'bg-emerald-600 text-white hover:bg-emerald-500' : 'bg-slate-800 text-slate-500'}`}>
-                  {canExecuteThisWeek ? "執行本週 DCA 策略" : "本週已鎖定 (系統可解鎖)"}
-                </button>
-              </Card>
-
-              {/* 財富推算模型 */}
-              <Card title="動態退休推算模型" icon={<TrendingUp className="w-5 h-5 text-blue-400"/>} className="p-0 border-t-2 border-blue-500">
-                <div className="p-4">
-                  <p className="text-[10px] text-slate-500 mb-4 font-mono uppercase">
-                    💡 自動套用憲法資金切換、信貸清零紅利。可上下滑動網頁，滑動圖表檢視節點。
-                  </p>
+              {/* 模擬器 */}
+              <Card title="動態退休推算模型" icon="🔮" className="p-0">
+                <div className="p-4 bg-gradient-to-b from-slate-800 to-slate-900">
+                  <p className="text-[10px] text-slate-400 mb-4 font-mono">💡 自動套用憲法資金切換、信貸清零紅利。上下滑動頁面，點擊圖表檢視年份。</p>
                   <WealthSimulatorEngine currentAssetTWD={portfolioTwd} config={config} />
                 </div>
               </Card>
 
-              {/* Logs */}
               <div className="px-2">
                 <div className="text-[10px] text-slate-500 mb-2 font-mono uppercase">System Logs</div>
-                <div className="space-y-1.5 font-mono text-xs max-h-44 overflow-y-auto">
-                  {state.logs.map(log => (
-                    <div key={log.id} className={log.type === "alert" ? "text-red-400" : log.type === "success" ? "text-emerald-400" : "text-slate-400"}>
-                      <span className="opacity-40">[{log.date.slice(5)}]</span> {log.msg}
-                    </div>
-                  ))}
-                </div>
+                <div className="space-y-1.5 font-mono text-xs max-h-40 overflow-y-auto">{state.logs.map(log => (<div key={log.id} className={log.type==="alert"?"text-red-400":log.type==="success"?"text-emerald-400":"text-slate-400"}><span className="opacity-40">[{log.date.slice(5)}]</span> {log.msg}</div>))}</div>
               </div>
             </div>
           )}
 
           {tab === "convert" && (
             <div className="space-y-4 animate-fade-in">
-              <Card title="山寨幣殲滅戰" icon={<Target className="w-5 h-5 text-fuchsia-400"/>} className="border-t-2 border-fuchsia-500">
+              <Card title="山寨幣殲滅戰" icon="🎯" className="border-t-2 border-fuchsia-500">
                 <p className="text-[11px] text-slate-400 mb-5 pb-3 border-b border-slate-800">戰略紀律：達標即動作，不預測、不留戀。</p>
-                <div className="space-y-8">
-                  <div className="relative pl-4 border-l-2 border-slate-700">
-                    <div className="absolute -left-[5px] top-1 w-2 h-2 rounded-full bg-blue-500" />
-                    <h3 className="text-sm font-bold text-white mb-4">Phase 1: ADA 中繼防禦</h3>
-                    <TacticalProgressBar label="轉 ETH 並質押 (50% ADA)" current={currentRatios.ADA_ETH} target={STRATEGY_TARGETS.ADA_ETH_1} unit="Ratio" themeColor="blue" isCryptoRatio={true} onExecute={()=>handleSniperExecution('ADA', currentRatios.ADA_BTC, ADA_SNIPE_RATIO)} />
-                    <TacticalProgressBar label="極致兌換 (剩餘 50%)" current={currentRatios.ADA_ETH} target={STRATEGY_TARGETS.ADA_ETH_2} unit="Ratio" themeColor="blue" isCryptoRatio={true} onExecute={()=>handleSniperExecution('ADA', currentRatios.ADA_BTC, ADA_SNIPE_RATIO)} />
-                  </div>
-                  <div className="relative pl-4 border-l-2 border-slate-700">
-                    <div className="absolute -left-[5px] top-1 w-2 h-2 rounded-full bg-amber-500" />
-                    <h3 className="text-sm font-bold text-white mb-4">Phase 2: 回歸大本營 BTC</h3>
-                    <TacticalProgressBar label="預備射擊 (解質押)" current={currentRatios.ETH_BTC} target={STRATEGY_TARGETS.ETH_BTC_PREP} unit="Ratio" themeColor="amber" isCryptoRatio={true} onExecute={()=>handleSniperExecution('ETH', currentRatios.ETH_BTC, ETH_SNIPE_RATIO)} />
-                    <TacticalProgressBar label="獲利了結 (100% 轉 BTC)" current={currentRatios.ETH_BTC} target={STRATEGY_TARGETS.ETH_BTC_EXEC} unit="Ratio" themeColor="amber" isCryptoRatio={true} onExecute={()=>handleSniperExecution('ETH', currentRatios.ETH_BTC, ETH_SNIPE_RATIO)} />
-                  </div>
-                </div>
+                <h3 className="text-sm font-bold text-white mb-3 pl-2 border-l-2 border-fuchsia-500">Phase 1: ADA 中繼防禦</h3>
+                <TacticalProgressBar label="轉 ETH 並質押 (50%)" current={ui.ethBtcRatio>0?ui.adaBtcRatio/ui.ethBtcRatio:0} target={STRATEGY_TARGETS.ADA_ETH_1} unit="Ratio" themeColor="blue" isCryptoRatio={true} onExecute={()=>handleSniper('ADA', ui.adaBtcRatio, ADA_SNIPE_RATIO)} />
+                
+                <h3 className="text-sm font-bold text-white mb-3 mt-8 pl-2 border-l-2 border-amber-500">Phase 2: 回歸大本營 BTC</h3>
+                <TacticalProgressBar label="預備射擊 (解質押)" current={ui.ethBtcRatio} target={STRATEGY_TARGETS.ETH_BTC_PREP} unit="Ratio" themeColor="amber" isCryptoRatio={true} onExecute={()=>handleSniper('ETH', ui.ethBtcRatio, ETH_SNIPE_RATIO)} />
+                <TacticalProgressBar label="獲利了結 (全數轉 BTC)" current={ui.ethBtcRatio} target={STRATEGY_TARGETS.ETH_BTC_EXEC} unit="Ratio" themeColor="amber" isCryptoRatio={true} onExecute={()=>handleSniper('ETH', ui.ethBtcRatio, ETH_SNIPE_RATIO)} />
               </Card>
             </div>
           )}
 
           {tab === "sop" && (
             <div className="space-y-4 animate-fade-in text-sm text-slate-300 leading-relaxed">
-              <Card title={`🛡️ 目標 ${config.goalBtc} BTC《終極防禦・執行憲法》`} icon={<BookOpen className="w-5 h-5 text-emerald-400"/>}>
+              <Card title={`終極防禦・執行憲法`} icon="📜">
                 <div className="text-xs text-slate-400 mb-4 pb-2 border-b border-slate-800">執行期間：2026.02 - {config.targetYear}.12｜執行人：[陳祥豪]</div>
                 <ul className="list-disc pl-4 space-y-2 text-xs">
                   <li><strong className="text-emerald-300">每月盲買：</strong>發薪日買入 NT$ {config.monthlyDcaTwd.toLocaleString()} BTC。</li>
                   <li><strong className="text-emerald-300">2031 閃電戰：</strong>保單 60 萬到期全灌入。</li>
                   <li><strong className="text-blue-300">2032 轉向：</strong>信貸清零，每月釋出資金全買 QQQ。</li>
                   <li><strong className="text-blue-300">2040 防禦：</strong>資金全轉 VOO，建安全緩衝區。</li>
-                  <li><strong className="text-red-400">生活防禦：</strong>2035 前禁新增負債。>3000 元消費強制 24h 冷靜。職場啟動 NPC 模式保留體力給家人。</li>
+                  <li><strong className="text-red-400">生活防禦：</strong>2035 前禁新增負債。>3000 元消費強制 24h 冷靜。職場啟動 NPC 模式。</li>
                 </ul>
               </Card>
             </div>
           )}
 
           {tab === "system" && (
-            <div className="space-y-4 animate-fade-in">
-              
-              <Card title="信貸與月定投參數 (影響推算模型)" icon={<Sliders className="w-5 h-5 text-white"/>}>
-                <div className="grid grid-cols-2 gap-3 mb-4">
-                  <InputField id="cfgMonthly" label="每月投入 (TWD)" defaultVal={config.monthlyDcaTwd} type="number" onCommit={(v)=>setConfig(p=>({...p, monthlyDcaTwd: parseNum(v, 13000)}))} />
-                  <InputField id="cfgYear" label="目標年份" defaultVal={config.targetYear} type="number" onCommit={(v)=>setConfig(p=>({...p, targetYear: parseNum(v, 2047)}))} />
-                  <InputField id="cfgGoal" label="目標 BTC" defaultVal={config.goalBtc} type="number" onCommit={(v)=>setConfig(p=>({...p, goalBtc: parseNum(v, 3)}))} />
-                  
-                  <InputField id="cfgLoan" label="信貸餘額 (TWD)" defaultVal={config.loanBalance} type="number" onCommit={(v)=>setConfig(p=>({...p, loanBalance: parseNum(v, 0)}))} />
-                  <InputField id="cfgLoanPay" label="每月還款 (TWD)" defaultVal={config.loanPayment} type="number" onCommit={(v)=>setConfig(p=>({...p, loanPayment: parseNum(v, 0)}))} />
-                  <InputField id="cfgLoanRate" label="信貸年利率 (%)" defaultVal={config.loanRate} type="number" onCommit={(v)=>setConfig(p=>({...p, loanRate: parseNum(v, 2.5)}))} />
+            <div className="space-y-5 animate-fade-in">
+              <Card title="銀行與信貸中控台" icon="💳" className="border-t-2 border-red-500">
+                <div className="grid grid-cols-2 gap-3 mb-2">
+                  <InputField label="信貸總餘額 (TWD)" value={config.loanBalance} type="number" onChange={e => updater('config', 'loanBalance', parseNum(e.target.value))} />
+                  <InputField label="每月還款額 (TWD)" value={config.loanPayment} type="number" onChange={e => updater('config', 'loanPayment', parseNum(e.target.value))} />
+                  <InputField label="信貸年利率 (%)" value={config.loanRate} type="number" onChange={e => updater('config', 'loanRate', parseNum(e.target.value))} />
+                  <InputField label="發薪日投入 (TWD)" value={config.monthlyDcaTwd} type="number" onChange={e => updater('config', 'monthlyDcaTwd', parseNum(e.target.value))} />
                 </div>
-                <div className="text-[10px] text-slate-500 leading-relaxed bg-slate-900 p-2 rounded">
-                  💡 系統將自動精算信貸扣款，當信貸清零時，原本還款的現金流會自動灌入 QQQ 或 VOO 進行複利推算。
+                <p className="text-[10px] text-slate-400 bg-slate-900 p-2 rounded leading-relaxed border border-slate-700">💡 系統會自動精算。信貸清零時，原本還款的現金流會自動灌入 QQQ 進行複利推算。</p>
+              </Card>
+
+              <Card title="核心資產與長期戰略" icon="🏦" className="border-t-2 border-emerald-500">
+                <div className="grid grid-cols-2 gap-3 mb-4 border-b border-slate-700/50 pb-4">
+                  <InputField label="熱錢包 BTC" value={holdings.btcHot} type="number" onChange={e => updater('holdings', 'btcHot', parseNum(e.target.value))} />
+                  <InputField label="冷錢包 BTC" value={holdings.btcCold} type="number" onChange={e => updater('holdings', 'btcCold', parseNum(e.target.value))} />
+                  <InputField label="ETH 數量" value={holdings.eth} type="number" onChange={e => updater('holdings', 'eth', parseNum(e.target.value))} />
+                  <InputField label="ADA 數量" value={holdings.ada} type="number" onChange={e => updater('holdings', 'ada', parseNum(e.target.value))} />
+                  <InputField label="預備金 USDT" value={holdings.usdtReserve} type="number" onChange={e => updater('holdings', 'usdtReserve', parseNum(e.target.value))} />
+                </div>
+                <div className="grid grid-cols-2 gap-3">
+                  <InputField label="目標退休年份" value={config.targetYear} type="number" onChange={e => updater('config', 'targetYear', parseNum(e.target.value))} />
+                  <InputField label="最終目標 BTC" value={config.goalBtc} type="number" onChange={e => updater('config', 'goalBtc', parseNum(e.target.value))} />
                 </div>
               </Card>
 
-              <Card title="系統管理與修正" icon={<Settings className="w-5 h-5 text-white"/>}>
+              <Card title="系統管理" icon="⚙️">
                 <div className="grid grid-cols-2 gap-3 mb-4">
-                  <button onClick={() => { navigator.clipboard.writeText(JSON.stringify({config, state, ui})); setModal({title:"成功", body:"已複製備份"}); }} className="bg-slate-700 py-3 rounded-xl text-xs font-bold text-white">匯出備份</button>
-                  <button onClick={() => { try{ const d = JSON.parse(prompt("貼上 JSON:")); if(d.state){ setConfig(d.config); setState(d.state); setUi(d.ui); alert("還原成功");} }catch(e){ alert("失敗"); } }} className="bg-slate-700 py-3 rounded-xl text-xs font-bold text-white">還原備份</button>
+                  <button onClick={() => { navigator.clipboard.writeText(JSON.stringify(appData)); setModal({title:"成功", body:"已複製備份資料。"}); }} className="bg-slate-700 py-3 rounded-lg text-xs font-bold text-white hover:bg-slate-600">匯出備份 JSON</button>
+                  <button onClick={() => { try{ const d = JSON.parse(prompt("請貼上 JSON:")); if(d.state){ setAppData(d); alert("還原成功");} }catch(e){ alert("資料格式錯誤"); } }} className="bg-slate-700 py-3 rounded-lg text-xs font-bold text-white hover:bg-slate-600">匯入還原</button>
                 </div>
-                
-                <p className="text-[11px] text-slate-400 mb-2 mt-2">手動修正持有量 (不會觸發 DCA)</p>
-                <div className="grid grid-cols-2 gap-2 mb-4">
-                  <InputField id="modBtc" label="熱錢包 BTC" defaultVal={state.btcHot} type="number" onCommit={(v)=>setState(p=>({...p, btcHot: parseNum(v, p.btcHot)}))} />
-                  <InputField id="modCold" label="冷錢包 BTC" defaultVal={state.btcCold} type="number" onCommit={(v)=>setState(p=>({...p, btcCold: parseNum(v, p.btcCold)}))} />
-                  <InputField id="modEth" label="ETH" defaultVal={state.eth} type="number" onCommit={(v)=>setState(p=>({...p, eth: parseNum(v, p.eth)}))} />
-                  <InputField id="modAda" label="ADA" defaultVal={state.ada} type="number" onCommit={(v)=>setState(p=>({...p, ada: parseNum(v, p.ada)}))} />
-                </div>
-
-                <button onClick={() => { setState(p=>({...p, lastWeeklyExecISO: null})); setModal({title:"解鎖", body:"本週已解除鎖定，可重新執行。"}); }} className="w-full bg-yellow-600/20 text-yellow-500 border border-yellow-600/50 py-3 rounded-xl text-xs font-bold hover:bg-yellow-600 hover:text-slate-900 transition-colors">
-                  強制解除「本週已執行」鎖定
+                <button onClick={() => { updater('state', 'lastWeeklyExecISO', null); setModal({title:"已解鎖", body:"本週已解除鎖定，可重新執行 DCA。"}); }} className="w-full bg-yellow-600/20 text-yellow-500 border border-yellow-600/50 py-3 rounded-lg text-xs font-bold hover:bg-yellow-600 hover:text-slate-900 transition-colors">
+                  強制解除「本週 DCA 已執行」鎖定
                 </button>
               </Card>
             </div>
           )}
 
-          {/* 解決痛點1：隱形的底部 Spacer，確保滑動到底不被導覽列擋住 */}
-          <div className="h-20 shrink-0"></div>
+          {/* 解決痛點1：隱形的底部 Spacer */}
+          <div className="h-10 shrink-0"></div>
 
         </div>
       </div>
 
-      {!HIDE_TABBAR && (
-        <div className="tabbar" ref={tabbarRef}>
-          <div className="tabbar-inner">
-            <TabBtn id="home" label="行動" icon="⚡" />
-            <TabBtn id="convert" label="狙擊" icon="🎯" />
-            <TabBtn id="sop" label="憲法" icon="📜" />
-            <TabBtn id="system" label="設定" icon="⚙️" />
-          </div>
+      {/* 底部導航 */}
+      <div className="tabbar">
+        <div className="tabbar-inner gap-2">
+          {[{ id: 'home', label: '行動', icon: '⚡' }, { id: 'convert', label: '狙擊', icon: '🎯' }, { id: 'sop', label: '憲法', icon: '📜' }, { id: 'system', label: '設定', icon: '⚙️' }].map(t => (
+            <button key={t.id} onClick={() => setTab(t.id)} className={`flex-1 py-2 rounded-xl flex flex-col items-center justify-center gap-1 transition-colors ${tab === t.id ? 'bg-slate-800 text-emerald-400 border border-slate-700' : 'text-slate-500 hover:bg-slate-800/50'}`}>
+              <span className="text-lg">{t.icon}</span><span className="text-[10px] font-bold">{t.label}</span>
+            </button>
+          ))}
         </div>
-      )}
+      </div>
 
       {modal && (
         <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/80 backdrop-blur-sm animate-fade-in" onClick={(e)=> e.target===e.currentTarget && setModal(null)}>
           <div className="bg-slate-800 border border-slate-600 w-full max-w-sm rounded-2xl p-6 shadow-2xl relative">
-            <h3 className="text-xl font-bold text-white mb-4">{modal.title}</h3>
-            {typeof modal.body === "string" ? <div className="text-slate-300 mb-6 whitespace-pre-wrap">{modal.body}</div> : <div className="text-slate-300 mb-6">{modal.body}</div>}
-            <button onClick={()=>setModal(null)} className="w-full py-3 bg-slate-700 hover:bg-slate-600 rounded-xl text-white font-bold">關閉</button>
+            <h3 className="text-xl font-bold text-white mb-3">{modal.title}</h3>
+            {typeof modal.body === "string" ? <div className="text-slate-300 mb-5 whitespace-pre-wrap text-sm leading-relaxed">{modal.body}</div> : <div className="text-slate-300 mb-5">{modal.body}</div>}
+            <button onClick={()=>setModal(null)} className="w-full py-3 bg-slate-700 hover:bg-slate-600 rounded-xl text-white font-bold transition-colors">關閉</button>
           </div>
         </div>
       )}
@@ -927,12 +624,6 @@ function App(){
 
 const root = ReactDOM.createRoot(document.getElementById("root"));
 root.render(<App />);
-
-if ("serviceWorker" in navigator) {
-  window.addEventListener("load", () => {
-    navigator.serviceWorker.register("./sw.js").catch(()=>{});
-  });
-}
 </script>
 </body>
 </html>

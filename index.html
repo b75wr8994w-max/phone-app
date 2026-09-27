@@ -7,7 +7,7 @@
   <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
   <meta name="format-detection" content="telephone=no,date=no,email=no,address=no">
   <meta name="theme-color" content="#0f172a">
-  <title>Project 2047：終極防禦大憲法 v8.4</title>
+  <title>Project 2047：終極防禦大憲法 v8.5</title>
 
   <script src="https://cdn.tailwindcss.com"></script>
   <script src="https://unpkg.com/react@18/umd/react.production.min.js" crossorigin></script>
@@ -70,9 +70,7 @@ window.onerror = function (msg, src, line, col) {
 
 /* ===== 核心設定與常數 ===== */
 const TWD_EXCHANGE_RATE = 31.8; 
-const SAVE_KEY = "p2047_v8_4_constitution_save";
-const FIXED_MONTH_PARTS = 4;
-const BLACK_SWAN_WEEKS = 4;
+const SAVE_KEY = "p2047_v8_5_constitution_save";
 
 const STRATEGY_TARGETS = {
   ADA_ETH_1: 0.00025,
@@ -106,11 +104,10 @@ const getInitialData = () => ({
   config: { goalBtc: 3.0, targetYear: 2047, monthlyDcaTwd: 13000, loanBalance: 500000, loanPayment: 15000, loanRate: 2.5 },
   holdings: { btcHot: 0.05, btcCold: 0.55999, eth: 32.5802, ada: 75350.2, usdtReserve: 0, qqq: 0, voo: 0 },
   state: {
-    logs: [], consecutiveGreedWeeks: 0, monthPartsRemaining: FIXED_MONTH_PARTS, lastMonthKey: monthKeyNow(),
-    lastWeeklyExecISO: null, sopStatus: { emergency: false, travel: false, dcaBtc: false },
-    blackSwan: { active: false, remainingWeeks: 0, weeklyBudget: 0, lastSpent: 0 }
+    logs: [], lastMonthKey: monthKeyNow(), lastDcaMonth: null,
+    sopStatus: { emergency: false, travel: false, dcaBtc: false }
   },
-  ui: { btcPrice: 65000, fngIndex: 50, ethBtcRatio: 0.05, adaBtcRatio: 0.000008 }
+  ui: { btcPrice: 84900, fngIndex: 50, ethBtcRatio: 0.031, adaBtcRatio: 0.000003 }
 });
 
 /* =========================================
@@ -186,7 +183,6 @@ const NativeAreaChart = ({ data }) => {
   if (!data || data.length === 0) return <div className="text-slate-500 text-center py-10">Initializing Model...</div>;
 
   const width = 800, height = 260;
-  // 【修復1】將 left padding 加大至 75，確保長字串數字不會被切斷
   const padding = { top: 25, right: 45, bottom: 30, left: 75 }; 
   const innerWidth = width - padding.left - padding.right;
   const innerHeight = height - padding.top - padding.bottom;
@@ -218,6 +214,19 @@ const NativeAreaChart = ({ data }) => {
     setHoverIndex(prev => (prev !== index ? index : prev));
   };
 
+  // 解決痛點1：將 SVG X 座標轉換為百分比，讓 DOM 元素隨比例完美對齊，不被邊緣裁切
+  let tooltipStyle = {};
+  if (hoverIndex !== null) {
+      const xPct = (getX(hoverIndex) / width) * 100;
+      const isRightSide = xPct > 50;
+      tooltipStyle = {
+          top: '5px',
+          ...(isRightSide 
+              ? { right: `${100 - xPct}%`, marginRight: '10px' } 
+              : { left: `${xPct}%`, marginLeft: '10px' })
+      };
+  }
+
   return (
     <div className="relative w-full h-full flex flex-col font-mono select-none">
       <div className="relative flex-1 touch-pan-y" onTouchMove={handleInteraction} onTouchStart={handleInteraction} onMouseMove={handleInteraction} onMouseLeave={() => setHoverIndex(null)}>
@@ -228,7 +237,6 @@ const NativeAreaChart = ({ data }) => {
             <linearGradient id="gradCrypto" x1="0" y1="0" x2="0" y2="1"><stop offset="0%" stopColor="#f59e0b" stopOpacity="0.8"/><stop offset="100%" stopColor="#f59e0b" stopOpacity="0.2"/></linearGradient>
           </defs>
           <line x1={padding.left} y1={padding.top} x2={width - padding.right} y2={padding.top} stroke="#334155" strokeDasharray="4 4" />
-          {/* 【修復1】加入 fontSize 控制字體，避免超出左邊界 */}
           <text x={padding.left - 10} y={padding.top + 4} fill="#64748b" textAnchor="end" fontSize="12">{maxY > 0 ? (maxY/10000000).toFixed(1) + '千萬' : '0'}</text>
           <line x1={padding.left} y1={height - padding.bottom} x2={width - padding.right} y2={height - padding.bottom} stroke="#334155" />
           <text x={padding.left - 10} y={height - padding.bottom + 4} fill="#64748b" textAnchor="end" fontSize="12">0</text>
@@ -248,25 +256,25 @@ const NativeAreaChart = ({ data }) => {
           )}
         </svg>
 
-        {/* 【修復2】使用 clamp 動態鎖定面板邊界，絕對不會再被裁切 */}
+        {/* 解決痛點1：加入 whitespace-nowrap 與 min-width 防止數字因換行被遮擋 */}
         {hoverIndex !== null && (
-          <div className="absolute pointer-events-none bg-slate-900/95 backdrop-blur-xl border border-slate-600 p-3 rounded-xl shadow-[0_10px_30px_rgba(0,0,0,0.8)] z-20 w-[240px]"
-               style={{ top: '5px', left: `clamp(10px, calc(${getX(hoverIndex)}px - 120px), calc(100% - 250px))` }}>
+          <div className="absolute pointer-events-none bg-slate-900/95 backdrop-blur-xl border border-slate-600 p-3 rounded-xl shadow-[0_10px_30px_rgba(0,0,0,0.8)] z-50 min-w-[250px] max-w-[90vw] whitespace-nowrap"
+               style={tooltipStyle}>
             <div className="flex justify-between items-end border-b border-slate-700 pb-2 mb-2">
               <span className="text-white font-bold text-sm">{data[hoverIndex].year} 年</span>
               <span className="text-slate-400 font-normal text-xs">{data[hoverIndex].age} 歲</span>
             </div>
-            <div className="bg-slate-800/80 rounded p-2 mb-2 border border-slate-700/50">
+            <div className="bg-slate-800/80 rounded p-2 mb-2 border border-slate-700/50 whitespace-normal">
               <p className="text-[10px] text-slate-400 mb-0.5">策略狀態 <span className={data[hoverIndex].loanActive ? "text-red-400" : "text-emerald-400"}>({data[hoverIndex].loanActive ? "信貸還款中" : "信貸已清零"})</span></p>
               <p className="text-[11px] text-blue-300 font-bold">{data[hoverIndex].injectDesc}</p>
             </div>
-            <div className="space-y-1">
-              <p className="text-xs text-amber-400 flex justify-between"><span>Crypto</span><span>{fmtMoney(data[hoverIndex].crypto)}</span></p>
-              <p className="text-xs text-blue-400 flex justify-between"><span>QQQ</span><span>{fmtMoney(data[hoverIndex].qqq)}</span></p>
-              <p className="text-xs text-emerald-400 flex justify-between"><span>VOO</span><span>{fmtMoney(data[hoverIndex].voo)}</span></p>
+            <div className="space-y-1.5">
+              <div className="flex justify-between items-center text-xs text-amber-400 gap-4"><span>Crypto</span><span>{fmtMoney(data[hoverIndex].crypto)}</span></div>
+              <div className="flex justify-between items-center text-xs text-blue-400 gap-4"><span>QQQ</span><span>{fmtMoney(data[hoverIndex].qqq)}</span></div>
+              <div className="flex justify-between items-center text-xs text-emerald-400 gap-4"><span>VOO</span><span>{fmtMoney(data[hoverIndex].voo)}</span></div>
               <div className="border-t border-slate-700 my-1.5 pt-1.5" />
-              <p className="text-sm font-bold text-white flex justify-between"><span>總淨值</span><span>{fmtMoney(data[hoverIndex].total)}</span></p>
-              <p className="text-[10px] text-blue-300 flex justify-between mt-1 bg-blue-900/20 p-1 rounded"><span>實質購買力(扣通膨)</span><span className="font-bold">{fmtMoney(data[hoverIndex].realTotal)}</span></p>
+              <div className="flex justify-between items-center text-sm font-bold text-white gap-4"><span>總淨值</span><span>{fmtMoney(data[hoverIndex].total)}</span></div>
+              <div className="flex justify-between items-center text-[10px] text-blue-300 mt-1 bg-blue-900/20 p-1.5 rounded gap-4"><span>實質購買力(扣通膨)</span><span className="font-bold">{fmtMoney(data[hoverIndex].realTotal)}</span></div>
             </div>
           </div>
         )}
@@ -362,7 +370,6 @@ const WealthSimulatorEngine = ({ cryptoTwd, holdings, config }) => {
         ))}
       </div>
       
-      {/* 【修復3】加入 flex-col sm:flex-row 讓大數字在手機版自動換行，不會擠在一起 */}
       <div className="flex flex-col sm:flex-row justify-between items-start sm:items-end border-b border-slate-800 pb-3 gap-2">
         <div>
           <p className="text-[10px] text-slate-500">EST. {config.targetYear} 總淨值</p>
@@ -395,8 +402,8 @@ function App(){
       if (saved) {
         const parsed = JSON.parse(saved);
         const nowKey = monthKeyNow();
+        // 如果跨月，自動清除上個月的狀態
         if (parsed.state?.lastMonthKey && parsed.state.lastMonthKey !== nowKey) {
-          parsed.state.monthPartsRemaining = FIXED_MONTH_PARTS;
           parsed.state.lastMonthKey = nowKey;
           parsed.state.sopStatus = { emergency: false, travel: false, dcaBtc: false };
         }
@@ -438,30 +445,47 @@ function App(){
 
   const addLog = (msg, type="info") => setAppData(p => ({ ...p, state: { ...p.state, logs: [{ id: Date.now(), date: todayMMDD(), msg, type }, ...p.state.logs].slice(0, 100) } }));
 
-  const executeWeekly = () => {
-    const isSameWeek = (a, b) => { if(!a||!b) return false; const wk = d => { const dt=new Date(d); dt.setUTCDate(dt.getUTCDate()+4-(dt.getUTCDay()||7)); return `${dt.getUTCFullYear()}-W${Math.ceil((((dt-new Date(Date.UTC(dt.getUTCFullYear(),0,1)))/86400000)+1)/7)}`; }; return wk(a)===wk(b); };
-    if (isSameWeek(state.lastWeeklyExecISO, new Date().toISOString())) return setModal({ title:"本週已鎖定", body:"本週已執行。若需重置請至「設定」頁面解除鎖定。" });
+  // 解決痛點2：改為「每月執行 1 份」的核心邏輯
+  const canExecuteThisMonth = state.lastDcaMonth !== monthKeyNow();
+
+  const executeMonthly = () => {
+    if (!canExecuteThisMonth) return setModal({ title:"本月已鎖定", body:"本月 DCA 已執行完畢。若需重置請至「設定」頁面解除鎖定。" });
 
     const fng = ui.fngIndex;
-    let partsLeft = state.monthPartsRemaining, spend = 0, save = 0, action = "";
     const monthlyUsdtDca = config.monthlyDcaTwd / TWD_EXCHANGE_RATE;
-    const partUsdt = monthlyUsdtDca / FIXED_MONTH_PARTS;
+    const partUsdt = monthlyUsdtDca / 4; 
+    let spendParts = 0, saveParts = 0, action = "";
 
-    if (partsLeft <= 0) { action = "本月份額已用完"; } else {
-      if (fng < 20) { action = "A 極度恐慌：4買0存"; spend = 4; save = 0; }
-      else if (fng <= 40) { action = "B 恐懼：3買1存"; spend = 3; save = 1; }
-      else if (fng <= 75) { action = "C 中性/偏貪：2買2存"; spend = 2; save = 2; }
-      else { action = "D 貪婪：0買4存"; spend = 0; save = 4; }
-      if (spend + save > partsLeft) { spend = Math.min(spend, partsLeft); save = Math.min(save, partsLeft - spend); }
+    // 使用 4 等分來切分比例，但一次執行整個月的額度
+    if (fng < 20) { action = "A 極度恐慌：100% 買入"; spendParts = 4; saveParts = 0; }
+    else if (fng <= 40) { action = "B 恐懼：75% 買 / 25% 存"; spendParts = 3; saveParts = 1; }
+    else if (fng <= 75) { action = "C 中性/偏貪：50% 買 / 50% 存"; spendParts = 2; saveParts = 2; }
+    else { action = "D 貪婪：0買 100% 存入"; spendParts = 0; saveParts = 4; }
+
+    const usdtSpent = spendParts * partUsdt;
+    const usdtSaved = saveParts * partUsdt;
+    
+    // 黑天鵝邏輯：當 FNG < 20 且預備金有錢，當月直接動用 25% 預備金加碼
+    let blackSpent = 0;
+    let reserveAfterSave = holdings.usdtReserve + usdtSaved;
+    if (fng < 20 && reserveAfterSave > 0) {
+        blackSpent = reserveAfterSave * 0.25;
+        reserveAfterSave -= blackSpent;
+        addLog(`黑天鵝觸發 (FNG<20)：動用 25% 預備金加碼`, "alert");
     }
 
-    const usdtSpent = spend * partUsdt, usdtSaved = save * partUsdt;
-    const btcBought = usdtSpent > 0 ? (usdtSpent / ui.btcPrice) : 0;
+    const totalSpent = usdtSpent + blackSpent;
+    const btcBought = totalSpent > 0 ? (totalSpent / ui.btcPrice) : 0;
 
-    setAppData(p => ({ ...p, holdings: { ...p.holdings, btcHot: p.holdings.btcHot + btcBought, usdtReserve: p.holdings.usdtReserve + usdtSaved }, state: { ...p.state, monthPartsRemaining: partsLeft - (spend + save), lastWeeklyExecISO: new Date().toISOString() } }));
+    setAppData(p => ({ 
+        ...p, 
+        holdings: { ...p.holdings, btcHot: p.holdings.btcHot + btcBought, usdtReserve: reserveAfterSave }, 
+        state: { ...p.state, lastDcaMonth: monthKeyNow() } 
+    }));
     
-    addLog(`週報：${action}`, usdtSpent > 0 ? "success" : "warning");
-    if (usdtSpent > 0) addLog(`買入 ${btcBought.toFixed(6)} BTC`, "success");
+    addLog(`月報：${action}`, usdtSpent > 0 ? "success" : "warning");
+    if (usdtSaved > 0) addLog(`存入預備金：+${Math.round(usdtSaved)}U`, "info");
+    if (totalSpent > 0) addLog(`本月投入：${Math.floor(totalSpent)}U → ${btcBought.toFixed(6)} BTC`, "success");
     triggerConfetti();
   };
 
@@ -544,6 +568,7 @@ function App(){
                 </Card>
               </div>
 
+              {/* 完美復刻星際艦隊總值面板 */}
               <div className="grid grid-cols-1 md:grid-cols-4 gap-3">
                 <div className="bg-slate-900/60 rounded-xl border border-slate-700/50 p-4">
                   <div className="text-[11px] text-slate-500 font-mono mb-1 tracking-wider">LIVE BTC/USDT</div>
@@ -564,20 +589,24 @@ function App(){
                 </div>
               </div>
 
-              <Card title="每週 DCA 樞紐" icon="📈">
+              {/* 每月 DCA 樞紐 (解決痛點2) */}
+              <Card title="每月 DCA 樞紐" icon="📈">
                 <div className="flex justify-between items-center mb-4 pb-3 border-b border-slate-700/50">
-                  <div className="text-slate-300 font-bold text-sm">執行配額監控</div>
+                  <div className="text-slate-300 font-bold text-sm">本月配額狀態</div>
                   <div className="text-right"><div className="text-[10px] text-slate-500">恐貪指數</div><div className={`text-xl font-mono font-bold ${ui.fngIndex>75?'text-emerald-400':ui.fngIndex<25?'text-red-400':'text-yellow-400'}`}>{ui.fngIndex}</div></div>
                 </div>
                 <div className="flex justify-between items-center mb-4">
-                  <span className="text-[10px] text-slate-400">本月份額 ({FIXED_MONTH_PARTS} 份)</span>
-                  <div className="flex gap-1">{[...Array(FIXED_MONTH_PARTS)].map((_, i) => (<div key={i} className={`h-2.5 w-6 rounded-sm border ${i < state.monthPartsRemaining ? 'bg-emerald-500 border-emerald-400' : 'bg-slate-800 border-slate-700'}`} />))}</div>
+                  <span className="text-[10px] text-slate-400">系統將依恐貪指數自動分配比例</span>
+                  <span className={`text-xs font-bold px-2 py-1 rounded ${canExecuteThisMonth ? 'bg-amber-500/20 text-amber-400' : 'bg-emerald-500/20 text-emerald-400'}`}>
+                    {canExecuteThisMonth ? "尚未執行" : "已完成"}
+                  </span>
                 </div>
-                <button onClick={executeWeekly} className="w-full py-3.5 rounded-xl font-bold bg-emerald-600 text-white hover:bg-emerald-500 shadow-lg text-sm">
-                  執行本週 DCA 策略
+                <button onClick={executeMonthly} className={`w-full py-3.5 rounded-xl font-bold transition-all shadow-lg text-sm ${canExecuteThisMonth ? 'bg-emerald-600 text-white hover:bg-emerald-500' : 'bg-slate-800 text-slate-500'}`}>
+                  {canExecuteThisMonth ? "執行本月 DCA 策略" : "本月已鎖定"}
                 </button>
               </Card>
 
+              {/* 模擬器 */}
               <Card title="動態退休推算模型" icon="🔮" className="p-0 border-t-2 border-blue-500">
                 <div className="p-4 bg-gradient-to-b from-slate-800 to-slate-900">
                   <p className="text-[10px] text-slate-400 mb-4 font-mono">💡 自動套用憲法資金切換、信貸清零紅利。上下滑動頁面，點擊圖表檢視年份。</p>
@@ -672,8 +701,8 @@ function App(){
                   <button onClick={() => { navigator.clipboard.writeText(JSON.stringify(appData)); setModal({title:"成功", body:"已複製備份資料。"}); }} className="bg-slate-700 py-3 rounded-lg text-xs font-bold text-white hover:bg-slate-600">匯出備份 JSON</button>
                   <button onClick={() => { try{ const d = JSON.parse(prompt("請貼上 JSON:")); if(d.state){ setAppData(d); alert("還原成功");} }catch(e){ alert("資料格式錯誤"); } }} className="bg-slate-700 py-3 rounded-lg text-xs font-bold text-white hover:bg-slate-600">匯入還原</button>
                 </div>
-                <button onClick={() => { updater('state', 'lastWeeklyExecISO', null); setModal({title:"已解鎖", body:"本週已解除鎖定，可重新執行 DCA。"}); }} className="w-full bg-yellow-600/20 text-yellow-500 border border-yellow-600/50 py-3 rounded-lg text-xs font-bold hover:bg-yellow-600 hover:text-slate-900 transition-colors">
-                  強制解除「本週 DCA 已執行」鎖定
+                <button onClick={() => { updater('state', 'lastDcaMonth', null); setModal({title:"已解鎖", body:"本月已解除鎖定，可重新執行 DCA。"}); }} className="w-full bg-yellow-600/20 text-yellow-500 border border-yellow-600/50 py-3 rounded-lg text-xs font-bold hover:bg-yellow-600 hover:text-slate-900 transition-colors">
+                  強制解除「本月 DCA 已執行」鎖定
                 </button>
               </Card>
             </div>

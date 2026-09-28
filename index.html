@@ -513,13 +513,13 @@ function App(){
   // 【優化】完美對齊真實計畫的時間軸節點
   const timelineNodes = useMemo(() => {
     const nodes = [
-      { year: 2027.02, title: "空大畢業 / 準備巡官升等", desc: "太太學業完成，啟動下一階段職涯戰略。", color: "text-amber-400", dot: "bg-amber-500" },
-      { year: 2028.11, title: "警察升官等考試", desc: "目標調至鄉下輕鬆單位，爭取輪班空檔陪伴咪波。", color: "text-blue-400", dot: "bg-blue-500" },
-      { year: 2031.08, title: "保單奇點閃電戰", desc: "到期保單分別灌入 BTC/QQQ。", color: "text-emerald-400", dot: "bg-emerald-500" },
-      { year: 2031.12, title: "星際權杖封存", desc: `BTC 達標。啟動冷儲存，嚴守 0.3 BTC 傳承咪波絕對底線。`, color: "text-amber-400", dot: "bg-amber-500" },
+      { year: 2027.02, title: "畢業 / 準備升等", desc: "學業完成，啟動下一階段職涯戰略。", color: "text-amber-400", dot: "bg-amber-500" },
+      { year: 2028.11, title: "考試", desc: "空檔時間陪伴家人。", color: "text-blue-400", dot: "bg-blue-500" },
+      { year: 2031.08, title: "閃電戰", desc: "到期保單分別灌入 BTC/QQQ。", color: "text-emerald-400", dot: "bg-emerald-500" },
+      { year: 2031.12, title: "星際權杖封存", desc: `權杖達標。啟動冷儲存，傳承絕對底線。`, color: "text-amber-400", dot: "bg-amber-500" },
       { year: loanClearYear + 0.01, title: "法幣水庫啟動 (信貸清零)", desc: `每月釋放之還款金 ${fmtMoney(config.loanPayment)} 轉為全面定投 QQQ。`, color: "text-blue-400", dot: "bg-blue-500" },
       { year: 2040.01, title: "順序風險防禦", desc: "資金全轉 VOO，建安全緩衝區。", color: "text-emerald-400", dot: "bg-emerald-500" },
-      { year: config.targetYear, title: "危勞降齡自願退休 (50歲)", desc: "夫妻雙雙達 50 歲，啟動 4% 提領拔管退休。", color: "text-white", dot: "bg-white", bold: true }
+      { year: config.targetYear, title: "退休 (50歲)", desc: "啟動 4% 提領拔管退休。", color: "text-white", dot: "bg-white", bold: true }
     ];
     return nodes.sort((a,b) => a.year - b.year);
   }, [config.goalBtc, loanClearYear, config.loanPayment, config.targetYear]);
